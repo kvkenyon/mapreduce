@@ -1,0 +1,18 @@
+[package]
+name = "mapreduce"
+version = "0.1.0"
+authors = ["Kevin Kenyon <kevin@turing.club>"]
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+path = "src/main.rs"
+name = "mapreduce"
+
+[dependencies]
+config = "0.15.15"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde-aux = "4.7.0"

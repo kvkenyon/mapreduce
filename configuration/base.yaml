@@ -1,0 +1,11 @@
+#! configuration/base.yaml
+
+task_settings:
+  map_tasks: 4
+  reduce_tasks: 2
+
+partition_settings:
+  partition_size: 16
+  partition_function: "default"
+
+mode: "sequential"
