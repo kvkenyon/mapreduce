@@ -29,7 +29,7 @@ impl MapReduceInput {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MapReduceOutput {
     base_path: String,
     num_tasks: u32,
@@ -99,6 +99,10 @@ impl MapReduceSpecification {
         self.input.push(input);
     }
 
+    pub fn inputs(&self) -> &Vec<MapReduceInput> {
+        &self.input
+    }
+
     pub fn machines(&self) -> u32 {
         self.machines
     }
@@ -109,6 +113,10 @@ impl MapReduceSpecification {
 
     pub fn reduce_megabytes(&self) -> u32 {
         self.reduce_megabytes
+    }
+
+    pub fn set_output(&mut self, output: MapReduceOutput) {
+        self.output = Some(output);
     }
 
     pub fn output(&self) -> &Option<MapReduceOutput> {

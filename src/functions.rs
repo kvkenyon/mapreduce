@@ -1,7 +1,7 @@
 //! src/functions.rs
 
-type Key = String;
-type Value = String;
+pub type Key = String;
+pub type Value = String;
 
 pub struct MapInput {
     key: Key,
@@ -42,19 +42,36 @@ impl<I: Iterator<Item = Value>> ReduceInput<I> {
 }
 
 pub trait MapEmitter {
-    fn emit(key: Key, value: Value);
+    fn emit(&self, key: Key, value: Value);
 }
 
 pub trait Mapper {
-    fn build(emitter: impl MapEmitter) -> Self;
+    type Emitter: MapEmitter;
+    fn build(emitter: Self::Emitter) -> Self;
     fn map(&self, key: Key, value: Value);
 }
 
 pub trait ReduceEmitter {
-    fn emit(value: Value);
+    fn emit(&self, value: Value);
 }
 
 pub trait Reducer {
-    fn build(emitter: impl ReduceEmitter) -> Self;
+    type Emitter: ReduceEmitter;
+    fn build(emitter: Self::Emitter) -> Self;
     fn reduce<I: Iterator<Item = Value>>(&self, key: Key, values: I);
+}
+
+pub struct DefaultMapEmitter;
+pub struct DefaultReduceEmitter;
+
+impl MapEmitter for DefaultMapEmitter {
+    fn emit(&self, key: Key, value: Value) {
+        println!("({key}, {value})");
+    }
+}
+
+impl ReduceEmitter for DefaultReduceEmitter {
+    fn emit(&self, value: Value) {
+        println!("({value})");
+    }
 }

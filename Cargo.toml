@@ -16,3 +16,7 @@ config = "0.15.15"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde-aux = "4.7.0"
+anyhow = "1.0.99"
+
+[dev-dependencies]
+claims = "0.8"
