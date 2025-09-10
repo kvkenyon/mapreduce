@@ -1,14 +1,26 @@
 //! src/spec.rs
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum MapReduceInputFormat {
+    Text,
+    Json,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum MapReduceOutputFormat {
+    Text,
+    Json,
+}
+
 #[derive(Debug)]
 pub struct MapReduceInput {
-    format: String,
+    format: MapReduceInputFormat,
     filename: String,
     mapper: String,
 }
 
 impl MapReduceInput {
-    pub fn new(format: String, filename: String, mapper: String) -> Self {
+    pub fn new(format: MapReduceInputFormat, filename: String, mapper: String) -> Self {
         MapReduceInput {
             format,
             filename,
@@ -20,7 +32,7 @@ impl MapReduceInput {
         &self.mapper
     }
 
-    pub fn format(&self) -> &str {
+    pub fn format(&self) -> &MapReduceInputFormat {
         &self.format
     }
 
@@ -33,7 +45,7 @@ impl MapReduceInput {
 pub struct MapReduceOutput {
     base_path: String,
     num_tasks: u32,
-    format: String,
+    format: MapReduceOutputFormat,
     reducer: String,
     combiner: Option<String>,
 }
@@ -42,7 +54,7 @@ impl MapReduceOutput {
     pub fn new(
         base_path: String,
         num_tasks: u32,
-        format: String,
+        format: MapReduceOutputFormat,
         reducer: String,
         combiner: Option<String>,
     ) -> Self {
@@ -59,7 +71,7 @@ impl MapReduceOutput {
         &self.reducer
     }
 
-    pub fn format(&self) -> &str {
+    pub fn format(&self) -> &MapReduceOutputFormat {
         &self.format
     }
 

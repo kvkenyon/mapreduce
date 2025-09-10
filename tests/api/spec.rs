@@ -1,6 +1,9 @@
 //! src/api/tests/mapreduce.rs
 use claims::{assert_none, assert_some};
-use mapreduce::spec::{MapReduceInput, MapReduceOutput, MapReduceSpecification};
+use mapreduce::spec::{
+    MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceOutputFormat,
+    MapReduceSpecification,
+};
 
 #[test]
 fn you_should_be_able_to_create_a_map_reduce_sepc() {
@@ -16,7 +19,7 @@ fn you_should_be_able_to_add_input_to_a_map_reduce_spec() {
 
     for i in 0..5 {
         let input = MapReduceInput::new(
-            "text".to_string(),
+            MapReduceInputFormat::Text,
             format!("input_{i}.txt"),
             "WordCounter".to_string(),
         );
@@ -27,7 +30,7 @@ fn you_should_be_able_to_add_input_to_a_map_reduce_spec() {
 
     for (i, input) in spec.inputs().iter().enumerate() {
         assert_eq!(input.filename(), format!("input_{i}.txt"));
-        assert_eq!(input.format(), "text".to_string());
+        assert_eq!(*input.format(), MapReduceInputFormat::Text);
         assert_eq!(input.mapper(), "WordCounter");
     }
 }
@@ -38,7 +41,7 @@ fn you_should_be_able_to_define_a_map_reduce_output_on_a_spec() {
 
     for i in 0..5 {
         let input = MapReduceInput::new(
-            "text".to_string(),
+            MapReduceInputFormat::Text,
             format!("input_{i}.txt"),
             "WordCounter".to_string(),
         );
@@ -50,7 +53,7 @@ fn you_should_be_able_to_define_a_map_reduce_output_on_a_spec() {
     let output = MapReduceOutput::new(
         "/root/home/word_counts".to_string(),
         100,
-        "text".to_string(),
+        MapReduceOutputFormat::Text,
         "Adder".to_string(),
         None,
     );
@@ -63,7 +66,7 @@ fn you_should_be_able_to_define_a_map_reduce_output_on_a_spec() {
         None => panic!("Error: Should be some."),
         Some(output) => {
             assert_eq!(output.base_path(), "/root/home/word_counts");
-            assert_eq!(output.format(), "text");
+            assert_eq!(*output.format(), MapReduceOutputFormat::Text);
             assert_eq!(output.num_tasks(), 100);
             assert_none!(output.combiner());
             assert_eq!(output.reducer(), "Adder");

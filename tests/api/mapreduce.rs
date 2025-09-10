@@ -45,7 +45,8 @@ impl Reducer for Adder {
 #[test]
 fn should_be_able_to_register_mapper_and_reducer_on_map_reduce_job() {
     let spec = build_spec();
-    let mut job = MapReduce::<WordCounter, Adder>::new(spec);
+    let mut job =
+        MapReduce::<WordCounter, Adder>::new(spec).expect("Failed to create map reduce job");
 
     let word_counter = WordCounter::build(DefaultMapEmitter);
     let adder = Adder::build(DefaultReduceEmitter);

@@ -42,8 +42,9 @@ impl FileSplitter {
         let (mut curr_out_file, mut path) = self.create_new_out_file("0")?;
         let mut curr_out_file_size = 0;
         let mut curr_suffix = 0;
-        for line in buf_reader.lines() {
-            let line = line.context("Failed to read line")?;
+
+        let mut it = buf_reader.lines().peekable();
+        while let Some(Ok(line)) = it.next() {
             let line_size = line.len();
 
             if line_size + curr_out_file_size > self.split_size_in_bytes as usize {
@@ -58,8 +59,12 @@ impl FileSplitter {
                 .write(line.as_bytes())
                 .context("Failed to write line to out file")?;
             curr_out_file_size += line_size;
+            // Ensure we return the last file path in the results
+            if it.peek().is_none() {
+                results.push(path);
+                break;
+            }
         }
-
         Ok(results)
     }
 
