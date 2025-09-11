@@ -64,6 +64,19 @@ pub trait Reducer {
 pub struct DefaultMapEmitter;
 pub struct DefaultReduceEmitter;
 
+// Add these implementations
+impl Default for DefaultMapEmitter {
+    fn default() -> Self {
+        DefaultMapEmitter
+    }
+}
+
+impl Default for DefaultReduceEmitter {
+    fn default() -> Self {
+        DefaultReduceEmitter
+    }
+}
+
 impl MapEmitter for DefaultMapEmitter {
     fn emit(&self, key: Key, value: Value) {
         println!("({key}, {value})");

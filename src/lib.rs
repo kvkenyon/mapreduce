@@ -5,6 +5,7 @@ pub mod file_splitter;
 pub mod functions;
 pub mod mapreduce;
 pub mod master;
+pub mod registry;
 pub mod spec;
 pub mod utils;
 pub mod worker;

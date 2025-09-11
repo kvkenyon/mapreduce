@@ -2,6 +2,7 @@
 use crate::functions::{
     DefaultMapEmitter, DefaultReduceEmitter, Key, MapEmitter, Mapper, ReduceEmitter, Reducer, Value,
 };
+use crate::{impl_mapper, impl_reducer};
 
 pub struct WordCounter {
     emitter: DefaultMapEmitter,
@@ -25,6 +26,7 @@ impl Mapper for WordCounter {
         }
     }
 }
+impl_mapper!(WordCounter, "word_counter");
 
 impl Reducer for Adder {
     type Emitter = DefaultReduceEmitter;
@@ -36,3 +38,5 @@ impl Reducer for Adder {
         self.emitter.emit(values.count().to_string());
     }
 }
+
+impl_reducer!(Adder, "adder");

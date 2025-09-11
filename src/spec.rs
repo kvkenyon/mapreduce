@@ -12,7 +12,7 @@ pub enum MapReduceOutputFormat {
     Json,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MapReduceInput {
     format: MapReduceInputFormat,
     filename: String,
@@ -88,6 +88,7 @@ impl MapReduceOutput {
     }
 }
 
+#[derive(Clone)]
 pub struct MapReduceSpecification {
     input: Vec<MapReduceInput>,
     output: Option<MapReduceOutput>,
