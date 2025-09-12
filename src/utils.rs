@@ -1,11 +1,10 @@
 //! src/util.rs
 use crate::functions::{
-    DefaultMapEmitter, DefaultReduceEmitter, Key, MapEmitter, Mapper, ReduceEmitter, Reducer, Value,
+    DefaultReduceEmitter, FileMapEmitter, Key, MapEmitter, Mapper, ReduceEmitter, Reducer, Value,
 };
-use crate::{impl_mapper, impl_reducer};
 
 pub struct WordCounter {
-    emitter: DefaultMapEmitter,
+    emitter: FileMapEmitter,
 }
 
 pub struct Adder {
@@ -13,12 +12,12 @@ pub struct Adder {
 }
 
 impl Mapper for WordCounter {
-    type Emitter = DefaultMapEmitter;
-    fn build(emitter: DefaultMapEmitter) -> Self {
+    type Emitter = FileMapEmitter;
+    fn build(emitter: FileMapEmitter) -> Self {
         Self { emitter }
     }
 
-    fn map(&self, _key: Key, value: Value) {
+    fn map(&mut self, _key: Key, value: Value) {
         for word in value.to_lowercase().split(|c: char| !c.is_alphabetic()) {
             if !word.is_empty() {
                 self.emitter.emit(word.to_string(), "1".to_string());
@@ -26,7 +25,6 @@ impl Mapper for WordCounter {
         }
     }
 }
-impl_mapper!(WordCounter, "word_counter");
 
 impl Reducer for Adder {
     type Emitter = DefaultReduceEmitter;
@@ -38,5 +36,3 @@ impl Reducer for Adder {
         self.emitter.emit(values.count().to_string());
     }
 }
-
-impl_reducer!(Adder, "adder");

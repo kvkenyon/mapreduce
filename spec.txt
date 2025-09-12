@@ -1,0 +1,53 @@
+
+
+Workers:
+
+1. Workers should be blind to if they reduce or map. They just execute tasks. Given a function name they look
+   up the function in either registry (reducer/mapper) and execute the function. If no function is found they fail.
+  - This leads to an additional requirement that mapper + reducer need to all have unique names (Think the type system handles this already?)
+2. We need to write mapper emitters to a canocial intermediate file name in /tmp/mapreduce/jobs/<uuid>/map/
+3. We need to implement a message sending system for master to send tasks to workers, and other messages like
+   map output is ready to be consumed etc.
+4. We can associate the MapReduceOutput with the Task (like with input split)
+   a. We need differennt task types
+5. Let's make the default emitters file writers (not just stdout writers)
+
+
+Wondering if we can use configuration instead of registry? Not the right solution. We want the library user to set the values and have them
+propagate to all the machines...
+
+
+Assigning tasks to machines (Workers):
+
+If we have 1 machine then there's nothing to do: give the machine all the tasks
+Sequentially execute all the maps and then the reduces.
+
+If we have M  map tasks and R reduce tasks. 
+
+
+For example the paper mentions running like this:
+
+M = 200,000
+R = 5000
+Machines = 2000
+
+Then a smaller example would look like this (factoring out 1000):
+M' = 200
+R' = 5
+Machines' = 2
+
+Optimal scheduling:
+
+5 Reduce tasks for 200 map tasks means each reduce can handle 40 Map tasks
+
+With two machines you get no great parallelization. You can have 1 reduce and 1 map, sits idle until 1 map completes
+reduce starts working, as other tasks get updated by the master as maps complete. 
+
+Deal cards method where each task is a card:
+
+Naive:
+Hand a worker a card, go to the next one and keep going around until you are out of cards
+
+Pairwise assignment:
+For a (M,R) task pair find two idle machines: Give one the map and the other the reduce
+Always split the maps and reduces across different machiens

@@ -4,7 +4,7 @@ use crate::functions::{Key, Mapper, Reducer, Value};
 // Dynamic versions of your traits
 pub trait MapperDyn: Send + Sync {
     fn name(&self) -> &str;
-    fn map(&self, key: Key, value: Value);
+    fn map(&mut self, key: Key, value: Value);
 }
 
 pub trait ReducerDyn: Send + Sync {
@@ -68,7 +68,7 @@ impl<M: Mapper + Send + Sync> MapperDyn for MapperWrapper<M> {
         self.name
     }
 
-    fn map(&self, key: Key, value: Value) {
+    fn map(&mut self, key: Key, value: Value) {
         self.inner.map(key, value);
     }
 }
@@ -113,13 +113,13 @@ macro_rules! impl_mapper_with_emitter {
 // Macro for mappers with default emitter
 #[macro_export]
 macro_rules! impl_mapper {
-    ($mapper_type:ty, $name:expr) => {
+    ($mapper_type:ty, $name:expr, $r:expr) => {
         inventory::submit! {
             $crate::registry::MapperRegistration {
                 name: $name,
                 factory: || {
-                    use $crate::functions::{Mapper, DefaultMapEmitter};
-                    let emitter = DefaultMapEmitter::default();
+                    use $crate::functions::{Mapper, FileMapEmitter};
+                    let emitter = FileMapEmitter::new("/tmp/mapreduce/output/map", $r).expect("Failed to build file map emitter");
                     let mapper = <$mapper_type>::build(emitter);
                     Box::new($crate::registry::MapperWrapper {
                         name: $name,

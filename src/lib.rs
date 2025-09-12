@@ -1,5 +1,4 @@
 //! src/lib.rs
-pub mod configuration;
 pub mod executors;
 pub mod file_splitter;
 pub mod functions;

@@ -132,7 +132,7 @@ impl MapReduceSpecification {
         self.output = Some(output);
     }
 
-    pub fn output(&self) -> &Option<MapReduceOutput> {
-        &self.output
+    pub fn output(&self) -> Option<MapReduceOutput> {
+        self.output.clone()
     }
 }

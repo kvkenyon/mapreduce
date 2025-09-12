@@ -1,7 +1,6 @@
 //! src/mapreduce.rs
 use crate::{
     file_splitter::FileSplitter,
-    functions::{Mapper, Reducer},
     master::Master,
     spec::{MapReduceInput, MapReduceSpecification},
     worker::Worker,
@@ -70,15 +69,13 @@ fn split_inputs(
     Ok(results)
 }
 
-pub struct MapReduce<M: Mapper, R: Reducer> {
+pub struct MapReduce {
     job_id: Uuid,
-    mapper: Option<M>,
-    reducer: Option<R>,
     spec: MapReduceSpecification,
     master: Master,
 }
 
-impl<M: Mapper, R: Reducer> MapReduce<M, R> {
+impl MapReduce {
     pub fn new(spec: MapReduceSpecification) -> Result<Self, anyhow::Error> {
         let job_id = Uuid::new_v4();
         let split_size_mb = spec.map_megabytes();
@@ -86,17 +83,22 @@ impl<M: Mapper, R: Reducer> MapReduce<M, R> {
 
         let input_splits = split_inputs(job_id, inputs, split_size_mb.into())?;
 
+        let output = spec.output().ok_or(anyhow::anyhow!(
+            "No reduce output configured in map reduce specification"
+        ))?;
+
         let mut workers = vec![];
-        for _ in 0..spec.machines() {
+
+        let num_workers = spec.machines();
+
+        for _ in 0..num_workers {
             workers.push(Worker::new());
         }
 
-        let master = Master::new(workers, input_splits);
+        let master = Master::new(workers, input_splits, output);
 
         let mr = MapReduce {
             spec,
-            mapper: None,
-            reducer: None,
             job_id,
             master,
         };
@@ -108,36 +110,12 @@ impl<M: Mapper, R: Reducer> MapReduce<M, R> {
         &self.master
     }
 
+    pub fn master_mut(&mut self) -> &mut Master {
+        &mut self.master
+    }
+
     pub fn job_id(&self) -> &Uuid {
         &self.job_id
-    }
-
-    pub fn register_mapper(&mut self, m: M)
-    where
-        M: Mapper,
-    {
-        self.mapper = Some(m);
-    }
-
-    pub fn mapper(&self) -> Option<&M> {
-        match &self.mapper {
-            Some(m) => Some(m),
-            None => None,
-        }
-    }
-
-    pub fn register_reducer(&mut self, r: R)
-    where
-        R: Reducer,
-    {
-        self.reducer = Some(r);
-    }
-
-    pub fn reducer(&self) -> Option<&R> {
-        match &self.reducer {
-            Some(r) => Some(r),
-            None => None,
-        }
     }
 
     pub fn spec(&self) -> &MapReduceSpecification {
@@ -152,30 +130,7 @@ impl<M: Mapper, R: Reducer> MapReduce<M, R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::spec::*;
-    use crate::test_utils::test_data_dir;
-    use crate::utils::{Adder, WordCounter};
-
-    fn make_mr_job() -> MapReduce<WordCounter, Adder> {
-        let mut spec = MapReduceSpecification::new(3, 1, 1);
-        let mut path = test_data_dir();
-        path.push("small_test.txt");
-        let out_path = PathBuf::from(format!("/tmp/mapreduce/out/{}", Uuid::new_v4()));
-        spec.add_input(MapReduceInput::new(
-            MapReduceInputFormat::Text,
-            path.to_str().unwrap().to_string(),
-            "word_counter".to_string(),
-        ));
-        spec.set_output(MapReduceOutput::new(
-            out_path.to_str().unwrap().to_string(),
-            100,
-            MapReduceOutputFormat::Text,
-            "adder".to_string(),
-            None,
-        ));
-        MapReduce::<WordCounter, Adder>::new(spec).expect("Failed to create map reduce job")
-    }
+    use crate::test_utils::make_mr_job;
 
     #[test]
     fn should_split_inputs_and_keep_record_of_the_new_paths() {
@@ -202,23 +157,15 @@ mod tests {
     }
 
     #[test]
-    fn should_contain_the_number_of_map_tasks_given_the_spec_after_new() {
+    fn should_contain_the_number_of_map_and_reduce_tasks_given_the_spec_after_new() {
         let mr_job = make_mr_job();
-        assert_eq!(3, mr_job.master.task_count());
+        assert_eq!(5, mr_job.master.task_count());
     }
 
     #[test]
     fn should_create_master_and_workers() {
         let mr_job = make_mr_job();
         assert_eq!(mr_job.master().worker_count(), 3);
-    }
-
-    #[test]
-    fn master_should_assign_all_tasks_to_workers() {
-        let mr_job = make_mr_job();
-        for worker in mr_job.master().workers() {
-            assert!(worker.has_task());
-        }
     }
 
     #[test]
