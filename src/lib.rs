@@ -1,5 +1,4 @@
 //! src/lib.rs
-pub mod executors;
 pub mod file_splitter;
 pub mod functions;
 pub mod mapreduce;

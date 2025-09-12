@@ -1,4 +1,5 @@
-//! src/worker.rs
+//! src/workers/lib.rs
+use crate::worker::WorkerService;
 use crate::{
     master::{MapTask, ReduceTask, TaskState},
     registry,
@@ -82,6 +83,13 @@ impl Worker {
 
     pub fn has_task(&self) -> bool {
         !self.map_tasks.is_empty() || !self.reduce_tasks.is_empty()
+    }
+}
+
+impl WorkerService for Worker {
+    async fn ping(self, _context: tarpc::context::Context) -> anyhow::Result<bool> {
+        println!("Master pinged me!!");
+        Ok(true)
     }
 }
 

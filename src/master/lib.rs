@@ -1,4 +1,4 @@
-//! src/master.rs
+//! src/master/lib.rs
 use crate::{
     mapreduce::InputSplit,
     spec::MapReduceOutput,
@@ -161,10 +161,9 @@ impl Master {
 
 #[cfg(test)]
 mod tests {
-    use claims::assert_some;
-
     use crate::master::TaskState;
     use crate::test_utils::make_mr_job;
+    use claims::assert_some;
 
     #[test]
     fn master_should_assign_all_tasks_to_available_workers() {
@@ -197,28 +196,28 @@ mod tests {
             assert_eq!(task.state, TaskState::InProgress);
         }
     }
-    #[test]
-    fn master_should_be_able_to_send_messages_to_workers() {
-        todo!()
-    }
-
-    #[test]
-    fn master_should_be_able_to_receive_messages_from_workers() {
-        todo!()
-    }
-
-    #[test]
-    fn master_should_send_heartbeats_to_workers_periodically() {
-        todo!()
-    }
-
-    #[test]
-    fn master_should_reassign_work_for_workers_that_dont_respond_to_heartbeat_before_timeout() {
-        todo!()
-    }
-
-    #[test]
-    fn master_should_forward_completed_map_task_intermediate_file_location_to_reduce_workers() {
-        todo!()
-    }
+    // #[test]
+    // fn master_should_be_able_to_send_messages_to_workers() {
+    //     todo!()
+    // }
+    //
+    // #[test]
+    // fn master_should_be_able_to_receive_messages_from_workers() {
+    //     todo!()
+    // }
+    //
+    // #[test]
+    // fn master_should_send_heartbeats_to_workers_periodically() {
+    //     todo!()
+    // }
+    //
+    // #[test]
+    // fn master_should_reassign_work_for_workers_that_dont_respond_to_heartbeat_before_timeout() {
+    //     todo!()
+    // }
+    //
+    // #[test]
+    // fn master_should_forward_completed_map_task_intermediate_file_location_to_reduce_workers() {
+    //     todo!()
+    // }
 }
