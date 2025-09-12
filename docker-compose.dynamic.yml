@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  master:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-master
+    hostname: master
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.10
+    volumes:
+      - ./target/release/master:/opt/mapreduce/bin/master:ro
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    ports:
+      - "15051:15051"
+      - "2221:22"
+
+
+  worker1:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-worker1
+    hostname: worker1
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.11
+    volumes:
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    depends_on:
+      - master
+
+  worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-worker2
+    hostname: worker2
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.12
+    volumes:
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    depends_on:
+      - master
+
+  worker3:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-worker3
+    hostname: worker3
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.13
+    volumes:
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    depends_on:
+      - master
+
+  worker4:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-worker4
+    hostname: worker4
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.14
+    volumes:
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    depends_on:
+      - master
+
+  worker5:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mapreduce-worker5
+    hostname: worker5
+    networks:
+      mapreduce-net:
+        ipv4_address: 172.28.1.15
+    volumes:
+      - ./target/release/worker:/opt/mapreduce/bin/worker:ro
+      - ./dev/ssh/id_rsa.pub:/root/.ssh/authorized_keys:ro
+      - ./dev/ssh/id_rsa:/root/.ssh/id_rsa:ro
+      - ./dev/ssh/config:/root/.ssh/config:ro
+      - mapreduce-data:/opt/mapreduce/data
+    depends_on:
+      - master
+
+networks:
+  mapreduce-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  mapreduce-data:

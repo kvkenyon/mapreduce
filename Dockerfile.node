@@ -1,0 +1,30 @@
+# Dockerfile.node
+FROM alpine:3.19
+
+# Minimal runtime dependencies for Rust binaries
+RUN apk add --no-cache \
+    libgcc \
+    libstdc++ \
+    openssh-client \
+    openssh-server \
+    && rm -rf /var/cache/apk/*
+
+# Setup SSH (simplified for local dev)
+RUN ssh-keygen -A && \
+    sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+# Create directories
+RUN mkdir -p /opt/mapreduce/bin /opt/mapreduce/data /root/.ssh
+
+# Copy binaries (will be mounted as volumes in dev)
+# COPY --from=builder /target/release/master /opt/mapreduce/bin/
+# COPY --from=builder /target/release/worker /opt/mapreduce/bin/
+
+WORKDIR /opt/mapreduce
+
+# Start SSH daemon
+CMD ["/usr/sbin/sshd", "-D", "-e"]
+
+EXPOSE 22 50051-50060

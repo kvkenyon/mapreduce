@@ -51,3 +51,32 @@ Hand a worker a card, go to the next one and keep going around until you are out
 Pairwise assignment:
 For a (M,R) task pair find two idle machines: Give one the map and the other the reduce
 Always split the maps and reduces across different machiens
+
+
+---------------------------
+
+We want to use the library as such:
+
+--
+let spec = MapReduceSpecification::new(...);
+let map_reduce = MapReduce::new(spec);
+!impl_mapper(WordCounter, "word_counter");
+!impl_reducer(Adder, "adder");
+
+map_reduce.exec().async;
+--
+
+Spawns N worker::server on remote server
+Spawns 1 master::server on remote server
+
+Master orchestrates the execution 
+
+--
+
+Right now I have two binaries, that I have to manually invoke to start the server. I guess I could bundle them in a docker image
+and then invoke a script
+
+
+
+
+
