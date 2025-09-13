@@ -1,9 +1,7 @@
 //! src/mapreduce.rs
 use crate::{
     file_splitter::FileSplitter,
-    master::Master,
     spec::{MapReduceInput, MapReduceSpecification},
-    worker::Worker,
 };
 use anyhow::Context;
 use std::path::PathBuf;
@@ -69,10 +67,11 @@ fn split_inputs(
     Ok(results)
 }
 
+#[allow(unused)]
 pub struct MapReduce {
     job_id: Uuid,
     spec: MapReduceSpecification,
-    master: Master,
+    input_splits: HashMap<Uuid, InputSplit>,
 }
 
 impl MapReduce {
@@ -83,94 +82,10 @@ impl MapReduce {
 
         let input_splits = split_inputs(job_id, inputs, split_size_mb.into())?;
 
-        let output = spec.output().ok_or(anyhow::anyhow!(
-            "No reduce output configured in map reduce specification"
-        ))?;
-
-        let mut workers = vec![];
-
-        let num_workers = spec.machines();
-
-        for _ in 0..num_workers {
-            workers.push(Worker::new());
-        }
-
-        let master = Master::new(workers, input_splits, output);
-
-        let mr = MapReduce {
+        Ok(MapReduce {
             spec,
             job_id,
-            master,
-        };
-
-        Ok(mr)
-    }
-
-    pub fn master(&self) -> &Master {
-        &self.master
-    }
-
-    pub fn master_mut(&mut self) -> &mut Master {
-        &mut self.master
-    }
-
-    pub fn job_id(&self) -> &Uuid {
-        &self.job_id
-    }
-
-    pub fn spec(&self) -> &MapReduceSpecification {
-        &self.spec
-    }
-
-    pub fn run(&mut self) -> Result<(), anyhow::Error> {
-        self.master.run()?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::test_utils::make_mr_job;
-
-    #[test]
-    fn should_split_inputs_and_keep_record_of_the_new_paths() {
-        let mr_job = make_mr_job();
-
-        let expected = [
-            "input_0_0".to_string(),
-            "input_0_1".to_string(),
-            "input_0_2".to_string(),
-        ];
-        for split in mr_job.master().input_splits() {
-            assert!(
-                expected.contains(
-                    &split
-                        .location
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string()
-                )
-            )
-        }
-    }
-
-    #[test]
-    fn should_contain_the_number_of_map_and_reduce_tasks_given_the_spec_after_new() {
-        let mr_job = make_mr_job();
-        assert_eq!(5, mr_job.master.task_count());
-    }
-
-    #[test]
-    fn should_create_master_and_workers() {
-        let mr_job = make_mr_job();
-        assert_eq!(mr_job.master().worker_count(), 3);
-    }
-
-    #[test]
-    fn run_kicks_off_execution() {
-        let mut mr_job = make_mr_job();
-        mr_job.run().expect("Failed to run jobs");
+            input_splits,
+        })
     }
 }

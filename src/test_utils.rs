@@ -14,6 +14,7 @@ pub fn test_data_dir() -> PathBuf {
     path
 }
 
+#[allow(unused)]
 pub fn make_mr_job() -> MapReduce {
     let mut spec = MapReduceSpecification::new(3, 1, 1);
     let mut path = test_data_dir();
