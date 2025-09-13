@@ -1,10 +1,5 @@
 //! src/workers/lib.rs
-use crate::{
-    master::{MapTask, ReduceTask, TaskState},
-    registry,
-};
-use anyhow::Context;
-use std::fs::read_to_string;
+use crate::master::{MapTask, ReduceTask};
 use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -53,20 +48,6 @@ impl Worker {
     }
 
     pub fn run(&mut self) -> Result<(), anyhow::Error> {
-        for task in self.map_tasks.iter_mut() {
-            //update state to InProgress
-            task.state = TaskState::InProgress;
-
-            // readinput
-            let input = read_to_string(task.input_split.location())
-                .context("Failed to read input split")?;
-            // execute task
-            let mapper = task.input_split.function();
-            let mut mapper = registry::get_mapper(mapper).map_err(|e| anyhow::anyhow!(e))?;
-            mapper.map("".to_string(), input);
-            // Update state to Completed
-            task.state = TaskState::Completed;
-        }
         Ok(())
     }
 
