@@ -1,4 +1,3 @@
-use clap::Parser;
 use futures::{future, prelude::*};
 use mapreduce::master::Master;
 use mapreduce::master::MasterService;
@@ -8,13 +7,6 @@ use tarpc::{
     server::{self, Channel, incoming::Incoming},
     tokio_serde::formats::Json,
 };
-
-#[derive(Parser)]
-struct Flags {
-    /// Sets the port number to listen on.
-    #[clap(long)]
-    port: u16,
-}
 
 #[derive(Clone)]
 struct MasterServer(Master, pub (IpAddr, u16));

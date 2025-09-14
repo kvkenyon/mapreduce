@@ -8,6 +8,50 @@ use std::path::PathBuf;
 use std::{collections::HashMap, fs};
 use uuid::Uuid;
 
+pub struct MapInput {
+    key: String,
+    value: String,
+}
+
+impl MapInput {
+    pub fn new(key: &str, value: &str) -> Self {
+        MapInput {
+            key: key.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+}
+
+pub struct ReduceInput {
+    key: String,
+    values: Box<dyn Iterator<Item = String>>,
+}
+
+impl ReduceInput {
+    pub fn new(key: &str, values: Box<dyn Iterator<Item = String>>) -> Self {
+        ReduceInput {
+            key: key.to_string(),
+            values,
+        }
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn into_values(self) -> Box<dyn Iterator<Item = String>> {
+        self.values
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct InputSplit {
     id: Uuid,
@@ -79,9 +123,7 @@ impl MapReduce {
         let job_id = Uuid::new_v4();
         let split_size_mb = spec.map_megabytes();
         let inputs = spec.inputs();
-
         let input_splits = split_inputs(job_id, inputs, split_size_mb.into())?;
-
         Ok(MapReduce {
             spec,
             job_id,

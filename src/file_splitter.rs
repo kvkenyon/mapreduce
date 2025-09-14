@@ -151,12 +151,13 @@ mod tests {
 
         fs::create_dir_all(&out_path).expect("Failed to create test directory");
 
-        let splitter = FileSplitter::new(filename, 100, "test_out".to_string(), out_path);
+        let splitter = FileSplitter::new(filename, 100, "test_out".to_string(), out_path.clone());
         let out_files = splitter.split().expect("Failed to split");
 
         for path in out_files {
             let size = fs::metadata(path).unwrap().len();
             assert_le!(size, 100);
         }
+        fs::remove_dir_all(out_path).expect("Failed to delete dirs");
     }
 }

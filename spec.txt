@@ -69,14 +69,35 @@ map_reduce.exec().async;
 Spawns N worker::server on remote server
 Spawns 1 master::server on remote server
 
-Master orchestrates the execution 
+Master orchestrates the execution.
 
 --
 
 Right now I have two binaries, that I have to manually invoke to start the server. I guess I could bundle them in a docker image
 and then invoke a script
 
+--
 
+Spawn N workers and 1 reducer via k8s.
 
+workers and master are RPC servers
 
+Global file storage is handled via S3
+
+We will still store intermediate outputs on the local worker machine to stay true
+to the map reduce original implementation.
+
+--
+
+Essentially mapreduce should create the manifest of how many workers to create and post it to the k8s
+API
+
+--
+
+Let's start with 1 master and 2 workers (1 reduce + 1 map)
+
+We will have separate Dockerfiles for each. Maybe use compose. We can go to k8s later but it's a whole THING. We just
+need a simple test environment for now.
+
+--
 

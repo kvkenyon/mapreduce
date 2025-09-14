@@ -1,8 +1,8 @@
 use futures::{future, prelude::*};
+use mapreduce::configuration::get_configuration;
 use mapreduce::worker::Worker;
 use mapreduce::worker::WorkerService;
 use std::net::IpAddr;
-use std::net::Ipv6Addr;
 use tarpc::{
     server::{self, Channel, incoming::Incoming},
     tokio_serde::formats::Json,
@@ -12,8 +12,8 @@ use tarpc::{
 struct WorkerServer(Worker, pub (IpAddr, u16));
 
 impl WorkerServer {
-    pub fn new() -> Self {
-        WorkerServer(Worker::new(), (IpAddr::V6(Ipv6Addr::LOCALHOST), 5152))
+    pub fn new(host: IpAddr, port: u16) -> Self {
+        WorkerServer(Worker::new(), (host, port))
     }
 }
 
@@ -31,10 +31,9 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let worker_server = WorkerServer::new();
-
+    let config = get_configuration().expect("Failed to read config");
+    let worker_server = WorkerServer::new(config.rpc.get_host(), config.rpc.port);
     let server_addr = worker_server.1;
-
     let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
     listener.config_mut().max_frame_length(usize::MAX);
     listener
