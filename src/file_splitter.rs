@@ -5,7 +5,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-#[allow(unused)]
 #[derive(Debug)]
 pub struct AsyncFileSplitter {
     bucket_name: String,
@@ -16,6 +15,7 @@ pub struct AsyncFileSplitter {
 }
 
 impl AsyncFileSplitter {
+    #[tracing::instrument(name = "Create AsyncFileSplitter")]
     pub fn new(
         job_id: &str,
         bucket_name: &str,
@@ -23,9 +23,6 @@ impl AsyncFileSplitter {
         output_key: &str,
         split_size_in_bytes: u32,
     ) -> Result<Self, anyhow::Error> {
-        println!(
-            "new async splitter for input_key={input_key} and output_key={output_key} with split_size_in_bytes={split_size_in_bytes}"
-        );
         let path = PathBuf::from(format!("/tmp/mapreduce/jobs/{job_id}"));
         std::fs::create_dir_all(&path).context(format!(
             "Failed to create local temp directory at: {}",
@@ -40,6 +37,7 @@ impl AsyncFileSplitter {
         })
     }
 
+    #[tracing::instrument(name = "Run split", skip(self))]
     pub async fn split(&mut self) -> Result<Vec<String>, anyhow::Error> {
         fn result_key(output_key: &str, curr_suffix: u8) -> String {
             format!("{output_key}_{curr_suffix}")

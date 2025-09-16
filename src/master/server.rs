@@ -1,6 +1,7 @@
 use futures::{future, prelude::*};
 use mapreduce::master::Master;
 use mapreduce::master::MasterService;
+use mapreduce::telemetry::init_tracing;
 use std::net::IpAddr;
 use std::net::Ipv6Addr;
 use tarpc::{
@@ -32,8 +33,8 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let master_server = MasterServer::new();
-
     let server_addr = master_server.1;
+    init_tracing("Master Server")?;
 
     let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
     listener.config_mut().max_frame_length(usize::MAX);

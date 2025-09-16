@@ -5,8 +5,8 @@ set -eo pipefail
 CONTAINER_NAME="s3"
 docker run \
   --publish 4566:4566 \
-  --detach \
   --name "${CONTAINER_NAME}" \
+  --detach \
    localstack/localstack:s3-latest
 until [ \
   "$(docker inspect -f "{{.State.Health.Status}}" ${CONTAINER_NAME})" == \

@@ -5,9 +5,11 @@ use mapreduce::spec::{
     MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceSpecification,
 };
 use mapreduce::storage::S3Storage;
+use mapreduce::telemetry::init_tracing;
 use uuid::Uuid;
 
 async fn setup() -> (MapReduceSpecification, S3Storage) {
+    init_tracing("tests::api::mapreduce").expect("Failed to setup tracing");
     let bucket_name = Uuid::new_v4().to_string();
     let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
     let s3 = S3Storage::new(&bucket_name)

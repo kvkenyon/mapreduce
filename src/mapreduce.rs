@@ -81,6 +81,7 @@ impl InputSplit {
     }
 }
 
+#[tracing::instrument(name = "Split inputs")]
 async fn split_inputs(
     job_id: &str,
     bucket_name: &str,
@@ -92,7 +93,7 @@ async fn split_inputs(
     let mut results = HashMap::<String, Vec<InputSplit>>::new();
     for i in 0..length {
         let input = inputs.get(i).context("Failed to get input.")?;
-        println!("processing input {}", input.filename());
+        tracing::debug!("processing input file: {}", input.filename());
         let mut splitter = AsyncFileSplitter::new(
             job_id,
             bucket_name,

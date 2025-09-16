@@ -1,6 +1,5 @@
 //! src/storage/s3.rs
-use std::path::PathBuf;
-
+use crate::configuration::get_configuration;
 use anyhow::Context;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
@@ -11,8 +10,7 @@ use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use secrecy::ExposeSecret;
 use std::fs::File;
 use std::io::Write;
-
-use crate::configuration::get_configuration;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct S3Storage {
@@ -21,8 +19,9 @@ pub struct S3Storage {
 }
 
 impl S3Storage {
+    #[tracing::instrument(name = "Create S3Storage handle")]
     pub async fn new(bucket_name: &str) -> Result<Self, anyhow::Error> {
-        let config = get_configuration().expect("Failed to get configuration");
+        let config = get_configuration().context("Failed to get configuration")?;
         let creds = Credentials::new(
             config.storage.aws_access_key_id,
             config.storage.aws_secret_key.expose_secret(),
@@ -44,7 +43,7 @@ impl S3Storage {
 
         match create_result {
             Ok(_) => {
-                println!("Successfully created bucket: {}", bucket_name);
+                tracing::debug!("Successfully acquired handle to bucket: {}", bucket_name);
             }
             Err(err) => {
                 let service_error = err.as_service_error();
@@ -64,8 +63,8 @@ impl S3Storage {
         })
     }
 
+    #[tracing::instrument(name = "Put", skip(data))]
     pub async fn put(&self, key: &str, data: &[u8]) -> Result<(), anyhow::Error> {
-        println!("s3 put for {key}");
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -76,6 +75,7 @@ impl S3Storage {
         Ok(())
     }
 
+    #[tracing::instrument(name = "Get string")]
     pub async fn get(&self, key: &str) -> Result<String, anyhow::Error> {
         let data = self
             .get_stream(key)
@@ -88,11 +88,8 @@ impl S3Storage {
         Ok(response.to_string())
     }
 
+    #[tracing::instrument(name = "Get to file", fields(path = path.to_str().unwrap_or_else(|| "n/a")))]
     pub async fn get_to_file(&self, key: &str, path: &PathBuf) -> Result<File, anyhow::Error> {
-        println!(
-            "Get to file from s3 at key={key} to path={}",
-            path.to_str().unwrap()
-        );
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -119,6 +116,7 @@ impl S3Storage {
         Ok(file)
     }
 
+    #[tracing::instrument(name = "Get stream")]
     pub async fn get_stream(&self, key: &str) -> Result<GetObjectOutput, anyhow::Error> {
         self.client
             .get_object()
@@ -129,6 +127,7 @@ impl S3Storage {
             .context("Failed to get object output stream")
     }
 
+    #[tracing::instrument(name = "List")]
     pub async fn list(&self) -> Result<Vec<String>, anyhow::Error> {
         let response = self
             .client

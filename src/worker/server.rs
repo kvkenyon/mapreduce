@@ -1,5 +1,6 @@
 use futures::{future, prelude::*};
 use mapreduce::configuration::get_configuration;
+use mapreduce::telemetry::init_tracing;
 use mapreduce::worker::Worker;
 use mapreduce::worker::WorkerService;
 use std::net::IpAddr;
@@ -34,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let config = get_configuration().expect("Failed to read config");
     let worker_server = WorkerServer::new(config.rpc.get_host(), config.rpc.port);
     let server_addr = worker_server.1;
+    init_tracing("Worker")?;
     let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
     listener.config_mut().max_frame_length(usize::MAX);
     listener
