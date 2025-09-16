@@ -7,6 +7,7 @@ pub mod master;
 pub mod reducers;
 pub mod spec;
 pub mod storage;
+pub mod telemetry;
 pub mod worker;
 
 #[cfg(test)]
