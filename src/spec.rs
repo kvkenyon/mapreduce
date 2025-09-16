@@ -90,6 +90,7 @@ impl MapReduceOutput {
 
 #[derive(Clone)]
 pub struct MapReduceSpecification {
+    bucket_name: String,
     input: Vec<MapReduceInput>,
     output: Option<MapReduceOutput>,
     machines: u32,
@@ -98,14 +99,24 @@ pub struct MapReduceSpecification {
 }
 
 impl MapReduceSpecification {
-    pub fn new(machines: u32, map_megabytes: u32, reduce_megabytes: u32) -> Self {
+    pub fn new(
+        bucket_name: &str,
+        machines: u32,
+        map_megabytes: u32,
+        reduce_megabytes: u32,
+    ) -> Self {
         MapReduceSpecification {
+            bucket_name: bucket_name.into(),
             input: vec![],
             output: None,
             machines,
             map_megabytes,
             reduce_megabytes,
         }
+    }
+
+    pub fn bucket_name(&self) -> &str {
+        &self.bucket_name
     }
 
     pub fn add_input(&mut self, input: MapReduceInput) {

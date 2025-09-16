@@ -1,10 +1,16 @@
 //! src/storage/s3.rs
+use std::path::PathBuf;
+
+use anyhow::Context;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::Config;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::config::Region;
+use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use secrecy::ExposeSecret;
+use std::fs::File;
+use std::io::Write;
 
 use crate::configuration::get_configuration;
 
@@ -34,7 +40,6 @@ impl S3Storage {
             .build();
 
         let client = aws_sdk_s3::Client::from_conf(config);
-
         let create_result = client.create_bucket().bucket(bucket_name).send().await;
 
         match create_result {
@@ -60,6 +65,7 @@ impl S3Storage {
     }
 
     pub async fn put(&self, key: &str, data: &[u8]) -> Result<(), anyhow::Error> {
+        println!("s3 put for {key}");
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -71,16 +77,56 @@ impl S3Storage {
     }
 
     pub async fn get(&self, key: &str) -> Result<String, anyhow::Error> {
-        let result = self
-            .client
+        let data = self
+            .get_stream(key)
+            .await?
+            .body
+            .collect()
+            .await?
+            .into_bytes();
+        let response = std::str::from_utf8(&data)?;
+        Ok(response.to_string())
+    }
+
+    pub async fn get_to_file(&self, key: &str, path: &PathBuf) -> Result<File, anyhow::Error> {
+        println!(
+            "Get to file from s3 at key={key} to path={}",
+            path.to_str().unwrap()
+        );
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .context(format!(
+                "Failed to create file for S3 download: {}",
+                path.to_str().unwrap()
+            ))?;
+
+        let mut object = self.get_stream(key).await?;
+        while let Some(bytes) = object
+            .body
+            .try_next()
+            .await
+            .context("Failed to read from S3 download stream")?
+        {
+            file.write_all(&bytes).map_err(|err| {
+                anyhow::anyhow!(format!(
+                    "Failed to write from S3 download stream to local file: {err:?}"
+                ))
+            })?;
+        }
+        Ok(file)
+    }
+
+    pub async fn get_stream(&self, key: &str) -> Result<GetObjectOutput, anyhow::Error> {
+        self.client
             .get_object()
             .bucket(&self.bucket)
             .key(key)
             .send()
-            .await?;
-        let data = result.body.collect().await?.into_bytes();
-        let response = std::str::from_utf8(&data)?;
-        Ok(response.to_string())
+            .await
+            .context("Failed to get object output stream")
     }
 
     pub async fn list(&self) -> Result<Vec<String>, anyhow::Error> {

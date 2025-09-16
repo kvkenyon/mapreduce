@@ -1,8 +1,5 @@
 //! src/test_utils.rs
 #[cfg(test)]
-use crate::mapreduce::MapReduce;
-use crate::spec::*;
-use crate::spec::{MapReduceInput, MapReduceOutput, MapReduceSpecification};
 use std::path::PathBuf;
 
 pub fn test_data_dir() -> PathBuf {
@@ -10,24 +7,4 @@ pub fn test_data_dir() -> PathBuf {
     path.push("tests");
     path.push("data");
     path
-}
-
-#[allow(unused)]
-pub fn make_mr_job() -> MapReduce {
-    let mut spec = MapReduceSpecification::new(3, 1, 1);
-    let mut path = test_data_dir();
-    path.push("small_test.txt");
-    spec.add_input(MapReduceInput::new(
-        MapReduceInputFormat::Text,
-        path.to_str().unwrap().to_string(),
-        "word_counter".to_string(),
-    ));
-    spec.set_output(MapReduceOutput::new(
-        "/tmp/mapreduce/out".to_string(),
-        2,
-        MapReduceOutputFormat::Text,
-        "adder".to_string(),
-        None,
-    ));
-    MapReduce::new(spec).expect("Failed to create map reduce job")
 }
