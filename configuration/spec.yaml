@@ -7,5 +7,5 @@ storage:
   aws_endpoint_url: "http://localhost:4566"
   aws_region: "us-east-1"
 rpc:
-  port: 5152
-  host: "0.0.0.0.0.0.0.2"
+  port: 0
+  host: "0.0.0.0"

@@ -6,9 +6,9 @@ pub mod mapreduce;
 pub mod master;
 pub mod reducers;
 pub mod spec;
+pub mod startup;
 pub mod storage;
 pub mod telemetry;
-pub mod worker;
-
 #[cfg(test)]
 mod test_utils;
+pub mod worker;

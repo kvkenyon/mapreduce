@@ -88,7 +88,7 @@ impl MapReduceOutput {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MapReduceSpecification {
     bucket_name: String,
     input: Vec<MapReduceInput>,

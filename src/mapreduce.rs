@@ -1,10 +1,13 @@
 //! src/mapreduce.rs
+use crate::configuration::get_configuration;
+use crate::startup::MapReduceJob;
 use crate::{
     file_splitter::AsyncFileSplitter,
     spec::{MapReduceInput, MapReduceSpecification},
 };
 use anyhow::Context;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -81,7 +84,7 @@ impl InputSplit {
     }
 }
 
-#[tracing::instrument(name = "Split inputs")]
+#[tracing::instrument(name = "Split inputs", skip_all)]
 async fn split_inputs(
     job_id: &str,
     bucket_name: &str,
@@ -116,6 +119,7 @@ async fn split_inputs(
 }
 
 #[allow(unused)]
+#[derive(Debug)]
 pub struct MapReduce {
     job_id: Uuid,
     spec: MapReduceSpecification,
@@ -123,6 +127,7 @@ pub struct MapReduce {
 }
 
 impl MapReduce {
+    #[tracing::instrument(name = "MapReduce new", skip_all)]
     pub async fn new(spec: MapReduceSpecification) -> Result<Self, anyhow::Error> {
         let job_id = Uuid::new_v4();
         let inputs = spec.inputs();
@@ -134,6 +139,7 @@ impl MapReduce {
             spec.map_megabytes(),
         )
         .await?;
+
         Ok(MapReduce {
             spec,
             job_id,
@@ -151,5 +157,12 @@ impl MapReduce {
 
     pub fn job_id(&self) -> &Uuid {
         &self.job_id
+    }
+
+    pub fn start(
+        &self,
+    ) -> anyhow::Result<impl futures::Future<Output = Result<MapReduceJob, anyhow::Error>>> {
+        let config = get_configuration().expect("Failed to get configuration");
+        Ok(MapReduceJob::start(config))
     }
 }

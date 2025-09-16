@@ -6,10 +6,15 @@ use mapreduce::spec::{
 };
 use mapreduce::storage::S3Storage;
 use mapreduce::telemetry::init_tracing;
+use std::sync::LazyLock;
+use std::time::Duration;
 use uuid::Uuid;
+static TRACING: LazyLock<()> = LazyLock::new(|| {
+    init_tracing("tests::api::mapreduce").expect("Failed to setup tracing");
+});
 
 async fn setup() -> (MapReduceSpecification, S3Storage) {
-    init_tracing("tests::api::mapreduce").expect("Failed to setup tracing");
+    LazyLock::force(&TRACING);
     let bucket_name = Uuid::new_v4().to_string();
     let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
     let s3 = S3Storage::new(&bucket_name)
@@ -78,4 +83,26 @@ async fn should_process_input_splits_on_remote_storage() {
         }
         assert_eq!(input_file_as_string.len(), total_size);
     }
+}
+
+#[tokio::test]
+async fn should_create_and_run_job() {
+    let (spec, _) = setup().await;
+
+    // Act
+    let mr = MapReduce::new(spec)
+        .await
+        .expect("Failed to create map reduce job");
+
+    let job = mr
+        .start()
+        .expect("Failed to start job")
+        .await
+        .expect("Failed");
+
+    let _ = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    });
+
+    job.shutdown().await.expect("Failed to shutdown job");
 }

@@ -5,17 +5,17 @@ authors = ["Kevin Kenyon <kevin@turing.club>"]
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde-aux = "4.7.0"
 anyhow = "1.0.99"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 futures = "0.3"
-tarpc = { version = "0.37", features = ["full"]}
+tarpc = { version = "0.37", features = ["full"] }
 aws-sdk-s3 = "1.106.0"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 config = "0.15.15"
-secrecy = { version="0.10.3", features=["serde"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
 aws-credential-types = "1.2.6"
 thiserror = "2.0.16"
 tracing = { version = "0.1" }

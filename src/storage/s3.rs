@@ -38,7 +38,7 @@ impl S3Storage {
             .force_path_style(true)
             .build();
 
-        let client = aws_sdk_s3::Client::from_conf(config);
+        let client = Client::from_conf(config);
         let create_result = client.create_bucket().bucket(bucket_name).send().await;
 
         match create_result {
@@ -63,7 +63,7 @@ impl S3Storage {
         })
     }
 
-    #[tracing::instrument(name = "Put", skip(data))]
+    #[tracing::instrument(name = "Put", skip(self, data))]
     pub async fn put(&self, key: &str, data: &[u8]) -> Result<(), anyhow::Error> {
         self.client
             .put_object()
@@ -75,7 +75,7 @@ impl S3Storage {
         Ok(())
     }
 
-    #[tracing::instrument(name = "Get string")]
+    #[tracing::instrument(name = "Get string", skip(self))]
     pub async fn get(&self, key: &str) -> Result<String, anyhow::Error> {
         let data = self
             .get_stream(key)
@@ -88,7 +88,8 @@ impl S3Storage {
         Ok(response.to_string())
     }
 
-    #[tracing::instrument(name = "Get to file", fields(path = path.to_str().unwrap_or_else(|| "n/a")))]
+    #[tracing::instrument(name = "Get to file", fields(path = path.to_str().unwrap_or_else(|| "n/a")
+    ), skip(self))]
     pub async fn get_to_file(&self, key: &str, path: &PathBuf) -> Result<File, anyhow::Error> {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -116,7 +117,7 @@ impl S3Storage {
         Ok(file)
     }
 
-    #[tracing::instrument(name = "Get stream")]
+    #[tracing::instrument(name = "Get stream", skip_all)]
     pub async fn get_stream(&self, key: &str) -> Result<GetObjectOutput, anyhow::Error> {
         self.client
             .get_object()
@@ -127,7 +128,7 @@ impl S3Storage {
             .context("Failed to get object output stream")
     }
 
-    #[tracing::instrument(name = "List")]
+    #[tracing::instrument(name = "List", skip_all)]
     pub async fn list(&self) -> Result<Vec<String>, anyhow::Error> {
         let response = self
             .client

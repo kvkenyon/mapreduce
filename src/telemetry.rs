@@ -14,8 +14,7 @@ pub fn init_tracing(
         .with_batch_exporter(
             opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
-                .build()
-                .unwrap(),
+                .build()?,
         )
         .build();
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
