@@ -121,6 +121,6 @@ async fn should_pass_input_splits_to_job() {
         .expect("Failed to start job")
         .await
         .expect("Failed");
-    
+
     assert!(!job.input_splits().is_empty());
 }

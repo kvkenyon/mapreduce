@@ -1,5 +1,5 @@
 //! src/job
-use crate::configuration::Settings;
+use crate::configuration::get_configuration;
 use crate::mapreduce::InputSplit;
 use crate::master::{MasterServer, MasterServiceClient, MasterStatus};
 use crate::spec::MapReduceSpecification;
@@ -9,78 +9,132 @@ use std::collections::HashMap;
 use tarpc::client::Config;
 use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{self, Sender};
 use tokio::task::JoinHandle;
 
 #[derive(Debug)]
 pub struct MapReduceJob {
     handles: Vec<JoinHandle<anyhow::Result<()>>>,
-    shutdown_tx: broadcast::Sender<()>,
+    shutdown_tx: Sender<()>,
     input_splits: HashMap<String, Vec<InputSplit>>,
     spec: MapReduceSpecification,
     master_service_client: MasterServiceClient,
     worker_service_clients: Vec<WorkerServiceClient>,
 }
 
+#[tracing::instrument("Setup worker servers", skip_all)]
+pub async fn setup_worker_servers(
+    worker_servers: &mut Vec<WorkerServer>,
+    worker_clients: &mut Vec<WorkerServiceClient>,
+    handles: &mut Vec<JoinHandle<anyhow::Result<()>>>,
+    shutdown_tx: &Sender<()>,
+) -> anyhow::Result<()> {
+    let configuration = get_configuration().context("Failed to get configuration")?;
+    let worker_count = configuration.cluster.workers;
+    for i in 0..worker_count {
+        let mut server = WorkerServer::build(configuration.clone()).await?;
+        let (socket_addr, handle) = server
+            .start(shutdown_tx)
+            .await
+            .context(format!("Failed to start worker {i}"))?;
+        let mut transport = tarpc::serde_transport::tcp::connect(socket_addr, Json::default);
+        transport.config_mut().max_frame_length(usize::MAX);
+        let worker_client = WorkerServiceClient::new(Config::default(), transport.await?).spawn();
+        worker_clients.push(worker_client);
+        handles.push(handle);
+        worker_servers.push(server);
+    }
+    Ok(())
+}
+
+#[tracing::instrument("Setup master", skip_all)]
+pub async fn setup_master_server(
+    spec: &MapReduceSpecification,
+    input_splits: &HashMap<String, Vec<InputSplit>>,
+    worker_clients: &[WorkerServiceClient],
+    handles: &mut Vec<JoinHandle<anyhow::Result<()>>>,
+    shutdown_tx: &Sender<()>,
+) -> anyhow::Result<MasterServiceClient> {
+    let configuration = get_configuration().context("Failed to get configuration")?;
+    let master_server = MasterServer::build(
+        configuration.clone(),
+        spec.clone(),
+        input_splits.clone(),
+        worker_clients.to_vec(),
+    )
+    .await?;
+    let (socket_addr, handle) = master_server
+        .start(shutdown_tx)
+        .await
+        .context("Failed to start worker")?;
+    handles.push(handle);
+    let mut transport = tarpc::serde_transport::tcp::connect(socket_addr, Json::default);
+    transport.config_mut().max_frame_length(usize::MAX);
+    let master_client = MasterServiceClient::new(Config::default(), transport.await?).spawn();
+    Ok(master_client)
+}
+
+#[tracing::instrument("Register master service client with workers", skip_all)]
+pub async fn register_master_service_client_with_workers(
+    master_service_client: &MasterServiceClient,
+    worker_servers: &mut [WorkerServer],
+) -> anyhow::Result<()> {
+    for worker_server in worker_servers.iter_mut() {
+        worker_server
+            .worker()
+            .set_master_service_client(master_service_client.clone());
+    }
+    Ok(())
+}
+
+#[tracing::instrument("Register workers with master", skip_all)]
+pub async fn register_workers_with_master(worker_servers: &[WorkerServer]) -> anyhow::Result<()> {
+    for worker_server in worker_servers.iter() {
+        worker_server
+            .call_home()
+            .await
+            .context("Failed to call home")?;
+    }
+    Ok(())
+}
+
 impl MapReduceJob {
     #[tracing::instrument(name = "Start MapReduceJob", skip_all)]
     pub async fn start(
         spec: MapReduceSpecification,
-        configuration: Settings,
         input_splits: HashMap<String, Vec<InputSplit>>,
     ) -> Result<Self, anyhow::Error> {
-        let worker_count = configuration.cluster.workers;
-
-        let mut worker_servers: Vec<WorkerServer> = vec![];
-
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
-
-        let mut worker_clients = vec![];
+        let mut worker_servers: Vec<WorkerServer> = vec![];
+        let mut worker_service_clients = vec![];
         let mut handles = vec![];
-        for i in 0..worker_count {
-            let server = WorkerServer::build(configuration.clone()).await?;
-            let (socket_addr, handle) = server
-                .start(&shutdown_tx)
-                .await
-                .context(format!("Failed to start worker {i}"))?;
-            let mut transport = tarpc::serde_transport::tcp::connect(socket_addr, Json::default);
-            transport.config_mut().max_frame_length(usize::MAX);
-            let worker_client =
-                WorkerServiceClient::new(Config::default(), transport.await?).spawn();
-            worker_clients.push(worker_client);
-            handles.push(handle);
-            worker_servers.push(server);
-        }
 
-        let master_server = MasterServer::build(
-            configuration.clone(),
-            spec.clone(),
-            input_splits.clone(),
-            worker_clients.clone(),
+        setup_worker_servers(
+            &mut worker_servers,
+            &mut worker_service_clients,
+            &mut handles,
+            &shutdown_tx,
         )
-        .await?;
-        let (socket_addr, handle) = master_server
-            .start(&shutdown_tx)
-            .await
-            .context("Failed to start worker")?;
-        handles.push(handle);
-        let mut transport = tarpc::serde_transport::tcp::connect(socket_addr, Json::default);
-        transport.config_mut().max_frame_length(usize::MAX);
-        let master_client = MasterServiceClient::new(Config::default(), transport.await?).spawn();
+        .await
+        .context("Failed to setup worker servers")?;
 
-        for worker_server in worker_servers.iter_mut() {
-            worker_server
-                .worker()
-                .set_master_service_client(master_client.clone());
-        }
+        let master_service_client = setup_master_server(
+            &spec,
+            &input_splits,
+            &worker_service_clients,
+            &mut handles,
+            &shutdown_tx,
+        )
+        .await
+        .context("Failed to setup master server")?;
 
         Ok(Self {
             spec,
             handles,
             shutdown_tx,
             input_splits,
-            master_service_client: master_client,
-            worker_service_clients: worker_clients,
+            master_service_client,
+            worker_service_clients,
         })
     }
 
@@ -109,7 +163,7 @@ impl MapReduceJob {
         &self.handles
     }
 
-    pub fn shutdown_tx(&self) -> &broadcast::Sender<()> {
+    pub fn shutdown_tx(&self) -> &Sender<()> {
         &self.shutdown_tx
     }
 
@@ -136,55 +190,11 @@ impl MapReduceJob {
 
 #[cfg(test)]
 mod tests {
-    use crate::configuration::get_configuration;
-    use crate::job::MapReduceJob;
-    use crate::mapreduce::InputSplit;
     use crate::master::MasterStatus;
-    use crate::spec::{
-        MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceOutputFormat,
-        MapReduceSpecification,
-    };
-    use crate::telemetry::init_tracing;
+    use crate::test_utils::setup_job;
     use crate::worker::WorkerStatus;
-    use std::collections::HashMap;
-    use std::sync::LazyLock;
-    use uuid::Uuid;
     use claims::assert_matches;
-
-    static TRACING: LazyLock<()> = LazyLock::new(|| {
-        init_tracing("tests::job").expect("Failed to setup tracing");
-    });
-
-    fn setup_job() -> impl Future<Output = Result<MapReduceJob, anyhow::Error>> {
-        LazyLock::force(&TRACING);
-        let bucket_name = Uuid::new_v4().to_string();
-        let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
-        spec.add_input(MapReduceInput::new(
-            MapReduceInputFormat::Text,
-            "input0.txt".into(),
-            "WordCounter".into(),
-        ));
-        spec.set_output(MapReduceOutput::new(
-            "/tmp/mapreduce/out".into(),
-            10,
-            MapReduceOutputFormat::Text,
-            "Adder".into(),
-            None,
-        ));
-        let mut input_splits = HashMap::new();
-        let mut splits = Vec::new();
-        for i in 0..100 {
-            splits.push(InputSplit::new(
-                &format!("mr_input_0_{i}_of_99"),
-                "WordCounter",
-            ));
-        }
-        input_splits.insert("input0.txt".to_string(), splits);
-
-        let config = get_configuration().expect("Failed to get config");
-
-        MapReduceJob::start(spec, config, input_splits)
-    }
+    use tarpc::context;
 
     #[tokio::test]
     async fn should_be_able_to_get_status_from_master() {
@@ -197,6 +207,7 @@ mod tests {
         assert_eq!(MasterStatus::Idle, status);
         job.shutdown().await.expect("Failed to shutdown job");
     }
+
     #[tokio::test]
     async fn should_be_able_to_get_status_from_workers() {
         let job = setup_job();
@@ -209,5 +220,19 @@ mod tests {
             assert_matches!(status, WorkerStatus::Idle(_));
         }
         job.shutdown().await.expect("Failed to shutdown job");
+    }
+
+    #[tokio::test]
+    async fn should_be_able_to_get_worker_info_from_master_since_they_call_home() {
+        let job = setup_job();
+        let job = job.await.expect("Failed to run job");
+
+        let worker_info = job
+            .master_service_client
+            .worker_info(context::current())
+            .await
+            .expect("Failed to get worker info");
+
+        assert_eq!(2, worker_info.len());
     }
 }

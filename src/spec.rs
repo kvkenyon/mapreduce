@@ -6,7 +6,7 @@ pub enum MapReduceInputFormat {
     Json,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum MapReduceOutputFormat {
     Text,
     Json,
@@ -41,7 +41,7 @@ impl MapReduceInput {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MapReduceOutput {
     base_path: String,
     num_tasks: u32,

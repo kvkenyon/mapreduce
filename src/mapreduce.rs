@@ -1,5 +1,4 @@
 //! src/mapreduce.rs
-use crate::configuration::get_configuration;
 use crate::job::MapReduceJob;
 use crate::{
     file_splitter::AsyncFileSplitter,
@@ -10,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use uuid::Uuid;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct MapInput {
     key: String,
     value: String,
@@ -55,7 +54,7 @@ impl ReduceInput {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct InputSplit {
     id: Uuid,
     key: String,
@@ -162,7 +161,6 @@ impl MapReduce {
     pub fn start(
         self,
     ) -> anyhow::Result<impl Future<Output = Result<MapReduceJob, anyhow::Error>>> {
-        let config = get_configuration().expect("Failed to get configuration");
-        Ok(MapReduceJob::start(self.spec, config, self.input_splits))
+        Ok(MapReduceJob::start(self.spec, self.input_splits))
     }
 }
