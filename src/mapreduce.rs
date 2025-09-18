@@ -1,6 +1,6 @@
 //! src/mapreduce.rs
 use crate::configuration::get_configuration;
-use crate::startup::MapReduceJob;
+use crate::job::MapReduceJob;
 use crate::{
     file_splitter::AsyncFileSplitter,
     spec::{MapReduceInput, MapReduceSpecification},
@@ -160,9 +160,9 @@ impl MapReduce {
     }
 
     pub fn start(
-        &self,
-    ) -> anyhow::Result<impl futures::Future<Output = Result<MapReduceJob, anyhow::Error>>> {
+        self,
+    ) -> anyhow::Result<impl Future<Output = Result<MapReduceJob, anyhow::Error>>> {
         let config = get_configuration().expect("Failed to get configuration");
-        Ok(MapReduceJob::start(config))
+        Ok(MapReduceJob::start(self.spec, config, self.input_splits))
     }
 }

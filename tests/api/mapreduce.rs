@@ -86,7 +86,7 @@ async fn should_process_input_splits_on_remote_storage() {
 }
 
 #[tokio::test]
-async fn should_create_and_run_job() {
+async fn should_start_a_job_and_handle_a_shutdown_signal_gracefully() {
     let (spec, _) = setup().await;
 
     // Act
@@ -105,4 +105,22 @@ async fn should_create_and_run_job() {
     });
 
     job.shutdown().await.expect("Failed to shutdown job");
+}
+
+#[tokio::test]
+async fn should_pass_input_splits_to_job() {
+    let (spec, _) = setup().await;
+
+    // Act
+    let mr = MapReduce::new(spec)
+        .await
+        .expect("Failed to create map reduce job");
+
+    let job = mr
+        .start()
+        .expect("Failed to start job")
+        .await
+        .expect("Failed");
+    
+    assert!(!job.input_splits().is_empty());
 }
