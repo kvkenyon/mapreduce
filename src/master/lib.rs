@@ -1,9 +1,9 @@
 //! src/master/lib.rs
 
 use crate::configuration::Settings;
-use crate::master::{CallHome, MasterService, MasterStatus, WorkerInfo};
+use crate::master::{CallHome, MasterService, MasterServiceError, MasterStatus};
 use crate::spec::MapReduceSpecification;
-use crate::worker::WorkerServiceClient;
+use crate::worker::{WorkerClient, WorkerInfo};
 use crate::{mapreduce::InputSplit, spec::MapReduceOutput, worker::WorkerId};
 use anyhow::Context;
 use futures::{future, prelude::*};
@@ -11,13 +11,15 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tarpc::{
+    context,
     server::{self, Channel, incoming::Incoming},
     tokio_serde::formats::Json,
 };
 use tokio::sync::RwLock;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use uuid::Uuid; // or use std::sync::Mutex
+use uuid::Uuid;
+// or use std::sync::Mutex
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TaskState {
@@ -51,8 +53,7 @@ pub struct Master {
     number_of_reduce_tasks: usize,
     map_tasks: Arc<RwLock<HashMap<Uuid, MapTask>>>,
     reduce_tasks: Arc<RwLock<HashMap<Uuid, ReduceTask>>>,
-    #[allow(unused)]
-    worker_service_clients: Vec<WorkerServiceClient>,
+    worker_clients: Vec<WorkerClient>,
     workers_addresses: Arc<RwLock<HashMap<WorkerId, SocketAddr>>>,
 }
 
@@ -61,7 +62,7 @@ impl Master {
     pub fn new(
         spec: MapReduceSpecification,
         input_splits: HashMap<String, Vec<InputSplit>>,
-        worker_service_clients: Vec<WorkerServiceClient>,
+        worker_clients: Vec<WorkerClient>,
     ) -> Self {
         let number_of_reduce_tasks = spec
             .output()
@@ -104,7 +105,7 @@ impl Master {
             number_of_reduce_tasks,
             map_tasks: Arc::new(RwLock::new(map_tasks)),
             reduce_tasks: Arc::new(RwLock::new(reduce_tasks)),
-            worker_service_clients,
+            worker_clients,
             workers_addresses: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -112,8 +113,68 @@ impl Master {
     pub fn map_tasks(&self) -> &Arc<RwLock<HashMap<Uuid, MapTask>>> {
         &self.map_tasks
     }
+
+    pub async fn assign_map_tasks(&mut self) -> anyhow::Result<()> {
+        let mut current_worker_idx = 0;
+        let num_workers = self.worker_clients.len();
+        for (task_id, map_task) in self.map_tasks.write().await.iter_mut() {
+            let worker_client = self
+                .worker_clients
+                .get(current_worker_idx % num_workers)
+                .unwrap();
+            map_task.worker_id = Some(*worker_client.id());
+            match worker_client
+                .client()
+                .assign_map_task(context::current(), map_task.clone())
+                .await?
+            {
+                Ok(_) => {
+                    tracing::info!(worker_id=?worker_client.id(), "Assigned task map {task_id} to \
+                    worker");
+                }
+                Err(e) => {
+                    tracing::error!(error=?e, worker_id=?worker_client.id(),"Failed to assign map \
+                    task {task_id}");
+                    map_task.worker_id = None;
+                }
+            }
+            current_worker_idx += 1;
+        }
+
+        Ok(())
+    }
     pub fn reduce_tasks(&self) -> &Arc<RwLock<HashMap<Uuid, ReduceTask>>> {
         &self.reduce_tasks
+    }
+
+    pub async fn assign_reduce_tasks(&mut self) -> anyhow::Result<()> {
+        let mut current_worker_idx = 0;
+        let num_workers = self.worker_clients.len();
+        for (task_id, reduce_task) in self.reduce_tasks.write().await.iter_mut() {
+            let worker_client = self
+                .worker_clients
+                .get(current_worker_idx % num_workers)
+                .unwrap();
+            reduce_task.worker_id = Some(*worker_client.id());
+            match worker_client
+                .client()
+                .assign_reduce_task(context::current(), reduce_task.clone())
+                .await?
+            {
+                Ok(_) => {
+                    tracing::info!(
+                        worker_id=?worker_client.id(),
+                        "Assigned reduce task {task_id} to worker.",
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(error=?e, worker_id=?worker_client.id(), "Failed to assign \
+                    reduce task {task_id}");
+                    reduce_task.worker_id = None;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn number_of_reduce_tasks(&self) -> usize {
@@ -132,13 +193,22 @@ impl Master {
         &self.input_splits
     }
 
-    pub async fn worker_info(&self) -> Vec<WorkerInfo> {
+    pub async fn worker_info(&self) -> anyhow::Result<Vec<WorkerInfo>> {
         let mut worker_infos = vec![];
-        for (worker_id, socket_addr) in self.workers_addresses.read().await.iter() {
-            let worker_info = WorkerInfo::new(*worker_id, *socket_addr, vec![], vec![]);
+        for worker_client in self.worker_clients.iter() {
+            let worker_info = worker_client
+                .client()
+                .worker_info(context::current())
+                .await?
+                .context(format!(
+                    "Failed \
+            to get \
+            worker info for {}",
+                    worker_client.id()
+                ))?;
             worker_infos.push(worker_info);
         }
-        worker_infos
+        Ok(worker_infos)
     }
 }
 
@@ -155,12 +225,12 @@ impl MasterServer {
         config: Settings,
         spec: MapReduceSpecification,
         input_splits: HashMap<String, Vec<InputSplit>>,
-        worker_service_clients: Vec<WorkerServiceClient>,
+        worker_clients: Vec<WorkerClient>,
     ) -> anyhow::Result<Self> {
         let master_server = MasterServer {
             host: config.rpc.host,
             port: config.rpc.port,
-            master: Master::new(spec, input_splits, worker_service_clients),
+            master: Master::new(spec, input_splits, worker_clients),
         };
         Ok(master_server)
     }
@@ -250,7 +320,11 @@ impl MasterService for MasterServer {
      worker_id = %call_home.worker_id(),
      socket_addr = %call_home.socket_address()
     ), skip_all)]
-    async fn call_home(mut self, _: tarpc::context::Context, call_home: CallHome) -> bool {
+    async fn call_home(
+        mut self,
+        _: context::Context,
+        call_home: CallHome,
+    ) -> Result<bool, MasterServiceError> {
         let CallHome::WorkerResponse(worker_id, socket_address) = call_home;
         self.master_mut()
             .workers_addresses
@@ -261,19 +335,19 @@ impl MasterService for MasterServer {
             "num workers who called home: {}",
             self.master.workers_addresses.read().await.len()
         );
-        true
+        Ok(true)
     }
 
-    async fn update_task(self, _context: tarpc::context::Context) {}
+    async fn update_task(self, _context: context::Context) {}
 
     #[tracing::instrument("Master status", skip_all)]
-    async fn status(self, _context: tarpc::context::Context) -> MasterStatus {
-        MasterStatus::Idle
+    async fn status(self, _context: context::Context) -> Result<MasterStatus, MasterServiceError> {
+        Ok(MasterStatus::Idle)
     }
 
     #[tracing::instrument("Worker info", skip_all)]
-    async fn worker_info(self, _: tarpc::context::Context) -> Vec<WorkerInfo> {
-        self.master.worker_info().await
+    async fn worker_info(self, _: context::Context) -> Result<Vec<WorkerInfo>, MasterServiceError> {
+        Ok(self.master.worker_info().await?)
     }
 }
 
@@ -283,9 +357,11 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[cfg(test)]
 mod tests {
-    use crate::master::TaskState;
+    use crate::master::{MasterService, TaskState};
+    use crate::test_utils::setup_cluster;
     use crate::test_utils::setup_master;
     use claims::{assert_none, assert_some};
+    use tarpc::context;
 
     #[tokio::test]
     async fn should_create_idle_unassigned_map_tasks_for_each_input_split_and_reduce_tasks_from_spec()
@@ -323,6 +399,58 @@ mod tests {
         }
     }
 
-    #[test]
-    fn master_server_should_have_a_vector_of_worker_servers_matching_the_cluster_configuration() {}
+    #[tokio::test]
+    async fn should_assign_tasks_to_workers() {
+        // Arrange
+        let (mut master_server, _worker_server, _shutdown_tx) = setup_cluster(5).await;
+
+        let master_server_clone = master_server.clone();
+        let worker_infos = master_server_clone
+            .worker_info(context::current())
+            .await
+            .expect("failed to get worker info");
+
+        for worker_info in worker_infos {
+            assert!(worker_info.map_tasks().is_empty());
+            assert!(worker_info.reduce_tasks().is_empty());
+        }
+
+        // Act
+        master_server
+            .master_mut()
+            .assign_map_tasks()
+            .await
+            .expect("Failed to assign map tasks");
+        master_server
+            .master_mut()
+            .assign_reduce_tasks()
+            .await
+            .expect("Failed to assign reduce tasks");
+
+        // Assert
+        let mut assigned_task_count = 0usize;
+        let master_server_clone = master_server.clone();
+        let worker_infos = master_server.worker_info(context::current()).await.expect(
+            "failed to \
+        get worker info",
+        );
+        for worker_info in worker_infos {
+            tracing::info!("{}", worker_info);
+            for map_task in worker_info.map_tasks() {
+                assigned_task_count += 1;
+                assert_eq!(map_task.state, TaskState::Idle);
+                assert_some!(map_task.worker_id);
+            }
+            for reduce_task in worker_info.reduce_tasks() {
+                assigned_task_count += 1;
+                assert_eq!(reduce_task.state, TaskState::Idle);
+                assert_some!(reduce_task.worker_id);
+            }
+        }
+        assert_eq!(
+            assigned_task_count,
+            master_server_clone.master.number_of_map_tasks
+                + master_server_clone.master.number_of_reduce_tasks
+        );
+    }
 }

@@ -1,5 +1,7 @@
 //! src/lib.rs
 pub mod configuration;
+pub mod emitter;
+mod error;
 pub mod file_splitter;
 pub mod job;
 pub mod mappers;

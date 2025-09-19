@@ -1,6 +1,6 @@
 //! src/telemetry.rs
 use opentelemetry::trace::TracerProvider as _;
-use tracing_subscriber::{fmt::format::FmtSpan, prelude::*};
+use tracing_subscriber::prelude::*;
 
 pub fn init_tracing(
     service_name: &'static str,
@@ -22,7 +22,14 @@ pub fn init_tracing(
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::NEW | FmtSpan::CLOSE))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .pretty()
+                .with_file(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
+                .with_target(false),
+        )
         .with(tracing_opentelemetry::layer().with_tracer(tracer))
         .try_init()?;
 

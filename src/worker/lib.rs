@@ -2,7 +2,9 @@
 
 use crate::configuration::Settings;
 use crate::master::{CallHome, MapTask, MasterServiceClient, ReduceTask};
-use crate::worker::{WorkerService, WorkerServiceError, WorkerStatus};
+use crate::worker::{
+    WorkerInfo, WorkerService, WorkerServiceClient, WorkerServiceError, WorkerStatus,
+};
 use anyhow::{Context, anyhow};
 use futures::{future, prelude::*};
 use std::fmt::Formatter;
@@ -49,6 +51,29 @@ pub struct Worker {
     map_tasks: Arc<RwLock<Vec<MapTask>>>,
     reduce_tasks: Arc<RwLock<Vec<ReduceTask>>>,
     master_service_client: Option<MasterServiceClient>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerClient {
+    worker_id: WorkerId,
+    client: WorkerServiceClient,
+}
+
+impl WorkerClient {
+    pub fn new(worker_id: WorkerId, client: &WorkerServiceClient) -> Self {
+        Self {
+            worker_id,
+            client: client.clone(),
+        }
+    }
+
+    pub fn id(&self) -> &WorkerId {
+        &self.worker_id
+    }
+
+    pub fn client(&self) -> &WorkerServiceClient {
+        &self.client
+    }
 }
 
 impl Default for Worker {
@@ -99,7 +124,7 @@ pub struct WorkerServer {
     worker: Worker,
     host: String,
     port: u16,
-    socket_addr: Option<SocketAddr>,
+    socket_addr: Arc<RwLock<Option<SocketAddr>>>,
 }
 
 impl WorkerServer {
@@ -108,7 +133,7 @@ impl WorkerServer {
             host: config.rpc.host,
             port: config.rpc.port,
             worker: Worker::new(),
-            socket_addr: None,
+            socket_addr: Arc::new(RwLock::new(None)),
         };
         Ok(worker_server)
     }
@@ -137,7 +162,8 @@ impl WorkerServer {
         });
         tracing::info!("waiting to bind socket address");
         let socket_addr = addr_rx.await.context("Failed to receive worker address")?;
-        self.socket_addr = Some(socket_addr);
+        let mut curr_addr = self.socket_addr.write().await;
+        *curr_addr = Some(socket_addr);
         tracing::info!("socket address acquired: {socket_addr}");
         Ok((socket_addr, handle))
     }
@@ -194,15 +220,15 @@ impl WorkerServer {
     ))]
     pub async fn call_home(&self) -> anyhow::Result<bool> {
         let worker_id = self.worker.id();
-        let socket_addr = self.socket_addr;
+        let socket_addr = self.socket_addr.as_ref();
 
-        if socket_addr.is_none() {
+        if socket_addr.read().await.is_none() {
             return Err(anyhow!(
                 "Socket address is None, cannot call home to master"
             ));
         }
 
-        let socket_addr = socket_addr.unwrap();
+        let socket_addr = socket_addr.read().await.unwrap();
 
         let call_home = CallHome::WorkerResponse(*worker_id, socket_addr);
         self.worker
@@ -210,20 +236,14 @@ impl WorkerServer {
             .as_ref()
             .unwrap()
             .call_home(context::current(), call_home)
-            .await
+            .await?
             .context("Failed to call home")
     }
 }
 
 impl WorkerService for WorkerServer {
-    async fn ping(self, _context: context::Context) -> bool {
-        let id = self.worker.id();
-        println!("Master pinged me how special I am with id = {:?}", id);
-        true
-    }
-
-    async fn status(self, _context: context::Context) -> WorkerStatus {
-        WorkerStatus::Idle(self.worker.id)
+    async fn status(self, _context: context::Context) -> Result<WorkerStatus, WorkerServiceError> {
+        Ok(WorkerStatus::Idle(self.worker.id))
     }
 
     async fn assign_map_task(
@@ -248,6 +268,16 @@ impl WorkerService for WorkerServer {
             .await
             .context("Failed to assign reduce task")?;
         Ok(true)
+    }
+
+    async fn worker_info(self, _: context::Context) -> Result<WorkerInfo, WorkerServiceError> {
+        Ok(WorkerInfo::new(
+            self.worker.id,
+            self.socket_addr.read().await.unwrap(),
+            WorkerStatus::Idle(self.worker.id),
+            self.worker.map_tasks.read().await.to_vec(),
+            self.worker.reduce_tasks.read().await.to_vec(),
+        ))
     }
 }
 async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {

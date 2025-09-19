@@ -1,7 +1,6 @@
 //! src/master/service.rs
-use crate::master::{MapTask, ReduceTask};
-use crate::worker::WorkerId;
-use std::fmt::{Display, Formatter};
+use crate::error::error_chain_fmt;
+use crate::worker::{WorkerId, WorkerInfo};
 use std::net::SocketAddr;
 
 #[derive(PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -9,69 +8,6 @@ pub enum MasterStatus {
     Idle,
     InProgress,
     Complete,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WorkerInfo {
-    worker_id: WorkerId,
-    socket_addr: SocketAddr,
-    map_tasks: Vec<MapTask>,
-    reduce_tasks: Vec<ReduceTask>,
-}
-
-impl WorkerInfo {
-    pub fn new(
-        worker_id: WorkerId,
-        socket_addr: SocketAddr,
-        map_tasks: Vec<MapTask>,
-        reduce_tasks: Vec<ReduceTask>,
-    ) -> Self {
-        Self {
-            worker_id,
-            socket_addr,
-            map_tasks,
-            reduce_tasks,
-        }
-    }
-
-    pub fn worker_id(&self) -> &WorkerId {
-        &self.worker_id
-    }
-
-    pub fn socket_addr(&self) -> SocketAddr {
-        self.socket_addr
-    }
-
-    pub fn map_tasks(&self) -> &Vec<MapTask> {
-        &self.map_tasks
-    }
-
-    pub fn reduce_tasks(&self) -> &Vec<ReduceTask> {
-        &self.reduce_tasks
-    }
-}
-
-impl Display for WorkerInfo {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "-------------------------------------------")?;
-        writeln!(f, "Worker Id: {}", self.worker_id)?;
-        writeln!(f, "Socket Address: {}", self.socket_addr)?;
-        if !self.map_tasks.is_empty() {
-            writeln!(f, "Map Tasks:")?;
-            for map_task in self.map_tasks.iter() {
-                writeln!(f, "    Task Id: {}", map_task.task_id)?;
-                writeln!(f, "    Task State: {:?}", map_task.state)?;
-            }
-        }
-        if !self.reduce_tasks.is_empty() {
-            writeln!(f, "Reduce Tasks:")?;
-            for reduce_task in self.reduce_tasks.iter() {
-                writeln!(f, "    Task Id: {}", reduce_task.task_id)?;
-                writeln!(f, "    Task State: {:?}", reduce_task.state)?;
-            }
-        }
-        writeln!(f, "-------------------------------------------")
-    }
 }
 
 #[derive(PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -91,13 +27,31 @@ impl CallHome {
     }
 }
 
+#[derive(thiserror::Error, serde::Serialize, serde::Deserialize)]
+pub enum MasterServiceError {
+    #[error("Unexpected error: {0}")]
+    UnexpectedError(String),
+}
+
+impl From<anyhow::Error> for MasterServiceError {
+    fn from(err: anyhow::Error) -> Self {
+        MasterServiceError::UnexpectedError(err.to_string())
+    }
+}
+
+impl std::fmt::Debug for MasterServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(f, self)
+    }
+}
+
 #[tarpc::service]
 pub trait MasterService {
-    async fn call_home(call_home: CallHome) -> bool;
+    async fn call_home(call_home: CallHome) -> Result<bool, MasterServiceError>;
 
     async fn update_task();
 
-    async fn status() -> MasterStatus;
+    async fn status() -> Result<MasterStatus, MasterServiceError>;
 
-    async fn worker_info() -> Vec<WorkerInfo>;
+    async fn worker_info() -> Result<Vec<WorkerInfo>, MasterServiceError>;
 }

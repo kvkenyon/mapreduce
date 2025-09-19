@@ -1,17 +1,20 @@
 //! src/test_utils.rs
+use crate::configuration::get_configuration;
 #[cfg(test)]
 use crate::job::MapReduceJob;
-use crate::mapreduce::InputSplit;
-use crate::master::Master;
+use crate::mapreduce::{InputSplit, split_inputs};
+use crate::master::{Master, MasterServer};
 use crate::spec::{
     MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceOutputFormat,
     MapReduceSpecification,
 };
 use crate::storage::S3Storage;
 use crate::telemetry::init_tracing;
+use crate::worker::WorkerServer;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use tokio::sync::broadcast::Sender;
 use uuid::Uuid;
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
@@ -76,7 +79,7 @@ pub fn setup_master() -> Master {
 }
 
 #[allow(unused)]
-pub async fn setup_rigorous_spec() -> (MapReduceSpecification, S3Storage) {
+pub async fn setup_rigorous_spec() -> (MapReduceSpecification, String, S3Storage) {
     LazyLock::force(&TRACING);
     let bucket_name = Uuid::new_v4().to_string();
     let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
@@ -109,20 +112,36 @@ pub async fn setup_rigorous_spec() -> (MapReduceSpecification, S3Storage) {
         None,
     ));
 
-    (spec, s3)
+    (spec, bucket_name, s3)
 }
 
-// pub async fn setup_cluster(num_worker: u16) -> (MasterServer, Vec<WorkerServer>) {
-//     let (spec, s3) = setup_rigorous_spec().await;
-//
-//     let mut config = get_configuration().expect("failed to get config");
-//     config.cluster.workers = num_worker;
-//
-//     let master_server = MasterServer::build(config, spec).await.expect(
-//         "failed to build master \
-//     server",
-//     );
-// }
+pub async fn setup_cluster(num_worker: u16) -> (MasterServer, Vec<WorkerServer>, Sender<()>) {
+    let (spec, bucket_name, _) = setup_rigorous_spec().await;
+
+    let mut config = get_configuration().expect("failed to get config");
+    config.cluster.workers = num_worker;
+
+    let input_splits = split_inputs(
+        &Uuid::new_v4().to_string(),
+        &bucket_name,
+        spec.inputs(),
+        "mr_output",
+        128,
+    )
+    .await
+    .expect("Failed to split input");
+
+    let mut configuration = get_configuration().expect("Failed to get configuration");
+
+    configuration.cluster.workers = num_worker;
+
+    let (_, shutdown_tx, _, _, master_server, worker_servers) =
+        crate::job::setup_cluster(&configuration, &spec, &input_splits)
+            .await
+            .expect("Failed to setup cluster");
+
+    (master_server, worker_servers, shutdown_tx)
+}
 
 pub fn test_data_dir() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

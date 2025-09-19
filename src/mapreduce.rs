@@ -84,7 +84,7 @@ impl InputSplit {
 }
 
 #[tracing::instrument(name = "Split inputs", skip_all)]
-async fn split_inputs(
+pub async fn split_inputs(
     job_id: &str,
     bucket_name: &str,
     inputs: &[MapReduceInput],
@@ -135,6 +135,9 @@ impl MapReduce {
             spec.bucket_name(),
             inputs,
             "mr_input",
+            // TODO: Add a spec field for split size
+            // map_megabytes to the memory limit for
+            // a worker node.
             spec.map_megabytes(),
         )
         .await?;

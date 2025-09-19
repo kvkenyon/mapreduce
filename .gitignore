@@ -1,2 +1,8 @@
 /target
 /dev
+/.idea/.gitignore
+/.idea/codeStyles/codeStyleConfig.xml
+/.idea/mapreduce.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml

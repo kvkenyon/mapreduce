@@ -1,20 +1,14 @@
 //! src/reducers/adder.rs
-use crate::reducers::{ReduceEmitter, Reducer};
+use crate::emitter::reduce_emit;
+use crate::reducers::Reducer;
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct Adder;
 
-impl ReduceEmitter for Adder {
-    #[tracing::instrument]
-    fn emit(&self, value: &str) {
-        tracing::info!("{value}");
-    }
-}
-
 impl Reducer for Adder {
-    #[tracing::instrument(skip(values))]
-    fn reduce(&self, key: &str, values: Box<dyn Iterator<Item = String>>) {
-        self.emit(&format!("({}, {})", key, &values.count()));
+    #[tracing::instrument("Adder", skip_all)]
+    fn reduce(&self, _: &str, values: Box<dyn Iterator<Item = String>>) {
+        reduce_emit(&format!("{}", &values.count()));
     }
 }

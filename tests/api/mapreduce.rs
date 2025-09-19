@@ -8,6 +8,7 @@ use mapreduce::storage::S3Storage;
 use mapreduce::telemetry::init_tracing;
 use std::sync::LazyLock;
 use std::time::Duration;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     init_tracing("tests::api::mapreduce").expect("Failed to setup tracing");
@@ -100,7 +101,7 @@ async fn should_start_a_job_and_handle_a_shutdown_signal_gracefully() {
         .await
         .expect("Failed");
 
-    let _ = tokio::spawn(async move {
+    let _: JoinHandle<()> = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
     });
 
