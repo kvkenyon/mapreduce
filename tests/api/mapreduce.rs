@@ -17,7 +17,7 @@ static TRACING: LazyLock<()> = LazyLock::new(|| {
 async fn setup() -> (MapReduceSpecification, S3Storage) {
     LazyLock::force(&TRACING);
     let bucket_name = Uuid::new_v4().to_string();
-    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
+    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128, 128);
     let s3 = S3Storage::new(&bucket_name)
         .await
         .expect("Failed to get storage");

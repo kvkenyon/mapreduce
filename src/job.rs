@@ -1,5 +1,5 @@
 //! src/job
-use crate::configuration::{Settings, get_configuration};
+use crate::configuration::{get_configuration, Settings};
 use crate::mapreduce::InputSplit;
 use crate::master::{MasterServer, MasterServiceClient, MasterStatus};
 use crate::spec::MapReduceSpecification;
@@ -11,9 +11,11 @@ use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
 use tokio::sync::broadcast::{self, Sender};
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct MapReduceJob {
+    job_id: Uuid,
     handles: Vec<JoinHandle<anyhow::Result<()>>>,
     shutdown_tx: Sender<()>,
     input_splits: HashMap<String, Vec<InputSplit>>,
@@ -49,6 +51,7 @@ pub async fn setup_worker_servers(
 
 #[tracing::instrument("Setup master", skip_all)]
 pub async fn setup_master_server(
+    job_id: Uuid,
     configuration: &Settings,
     spec: &MapReduceSpecification,
     input_splits: &HashMap<String, Vec<InputSplit>>,
@@ -58,6 +61,7 @@ pub async fn setup_master_server(
 ) -> anyhow::Result<(MasterServiceClient, MasterServer)> {
     let master_server = MasterServer::build(
         configuration.clone(),
+        job_id,
         spec.clone(),
         input_splits.clone(),
         worker_clients.to_vec(),
@@ -99,6 +103,7 @@ pub async fn register_workers_with_master(worker_servers: &[WorkerServer]) -> an
 }
 
 pub async fn setup_cluster(
+    job_id: Uuid,
     configuration: &Settings,
     spec: &MapReduceSpecification,
     input_splits: &HashMap<String, Vec<InputSplit>>,
@@ -126,6 +131,7 @@ pub async fn setup_cluster(
     .context("Failed to setup worker servers")?;
 
     let (master_service_client, master_server) = setup_master_server(
+        job_id,
         configuration,
         spec,
         input_splits,
@@ -157,17 +163,19 @@ pub async fn setup_cluster(
 impl MapReduceJob {
     #[tracing::instrument(name = "Start MapReduceJob", skip_all)]
     pub async fn start(
+        job_id: Uuid,
         spec: MapReduceSpecification,
         input_splits: HashMap<String, Vec<InputSplit>>,
     ) -> Result<Self, anyhow::Error> {
         let configuration = get_configuration().context("Failed to get configuration")?;
 
         let (handles, shutdown_tx, master_service_client, worker_clients, _, _) =
-            setup_cluster(&configuration, &spec, &input_splits)
+            setup_cluster(job_id, &configuration, &spec, &input_splits)
                 .await
                 .context("Failed to setup cluster")?;
 
         Ok(Self {
+            job_id,
             spec,
             handles,
             shutdown_tx,

@@ -62,7 +62,7 @@ impl WorkerInfo {
 
 impl Display for WorkerInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "-----------------")?;
         writeln!(f, "Worker Id: {}", self.worker_id)?;
         writeln!(f, "Status: {:?}", self.worker_status)?;
@@ -110,6 +110,8 @@ pub trait WorkerService {
     async fn assign_map_task(map_task: MapTask) -> Result<bool, WorkerServiceError>;
 
     async fn assign_reduce_task(reduce_task: ReduceTask) -> Result<bool, WorkerServiceError>;
+
+    async fn start_tasks() -> Result<(), WorkerServiceError>;
 
     async fn worker_info() -> Result<WorkerInfo, WorkerServiceError>;
 }

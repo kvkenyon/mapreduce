@@ -1,5 +1,4 @@
 //! src/master/lib.rs
-
 use crate::configuration::Settings;
 use crate::master::{CallHome, MasterService, MasterServiceError, MasterStatus};
 use crate::spec::MapReduceSpecification;
@@ -8,18 +7,18 @@ use crate::{mapreduce::InputSplit, spec::MapReduceOutput, worker::WorkerId};
 use anyhow::Context;
 use futures::{future, prelude::*};
 use std::collections::HashMap;
+use std::fmt::Formatter;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tarpc::{
     context,
-    server::{self, Channel, incoming::Incoming},
+    server::{self, incoming::Incoming, Channel},
     tokio_serde::formats::Json,
 };
-use tokio::sync::RwLock;
 use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-// or use std::sync::Mutex
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TaskState {
@@ -28,16 +27,29 @@ pub enum TaskState {
     Completed,
 }
 
+impl std::fmt::Display for TaskState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskState::Idle => writeln!(f, "idle"),
+            TaskState::InProgress => writeln!(f, "in-progress"),
+            TaskState::Completed => writeln!(f, "completed"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MapTask {
+    pub job_id: Uuid,
     pub task_id: Uuid,
     pub state: TaskState,
     pub worker_id: Option<WorkerId>,
     pub input_split: InputSplit,
+    pub r: usize,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ReduceTask {
+    pub job_id: Uuid,
     pub task_id: Uuid,
     pub state: TaskState,
     pub worker_id: Option<WorkerId>,
@@ -45,8 +57,15 @@ pub struct ReduceTask {
     pub input_location: Option<String>,
 }
 
+impl ReduceTask {
+    pub fn is_ready(&self) -> bool {
+        self.input_location.is_some()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Master {
+    job_id: Uuid,
     spec: MapReduceSpecification,
     input_splits: Arc<RwLock<HashMap<String, Vec<InputSplit>>>>,
     number_of_map_tasks: usize,
@@ -60,6 +79,7 @@ pub struct Master {
 #[allow(unused)]
 impl Master {
     pub fn new(
+        job_id: Uuid,
         spec: MapReduceSpecification,
         input_splits: HashMap<String, Vec<InputSplit>>,
         worker_clients: Vec<WorkerClient>,
@@ -75,7 +95,9 @@ impl Master {
             for input_split in input_splits {
                 let task_id = Uuid::new_v4();
                 let task = MapTask {
+                    job_id,
                     task_id,
+                    r: number_of_reduce_tasks,
                     state: TaskState::Idle,
                     worker_id: None,
                     input_split,
@@ -89,6 +111,7 @@ impl Master {
         for i in 0..number_of_reduce_tasks {
             let task_id = Uuid::new_v4();
             let task = ReduceTask {
+                job_id,
                 task_id,
                 state: TaskState::Idle,
                 worker_id: None,
@@ -99,6 +122,7 @@ impl Master {
         }
 
         Master {
+            job_id,
             spec,
             input_splits: Arc::new(RwLock::new(input_splits)),
             number_of_map_tasks,
@@ -117,7 +141,9 @@ impl Master {
     pub async fn assign_map_tasks(&mut self) -> anyhow::Result<()> {
         let mut current_worker_idx = 0;
         let num_workers = self.worker_clients.len();
-        for (task_id, map_task) in self.map_tasks.write().await.iter_mut() {
+        for (current_worker_idx, (task_id, map_task)) in
+            self.map_tasks.write().await.iter_mut().enumerate()
+        {
             let worker_client = self
                 .worker_clients
                 .get(current_worker_idx % num_workers)
@@ -138,7 +164,6 @@ impl Master {
                     map_task.worker_id = None;
                 }
             }
-            current_worker_idx += 1;
         }
 
         Ok(())
@@ -223,6 +248,7 @@ pub struct MasterServer {
 impl MasterServer {
     pub async fn build(
         config: Settings,
+        job_id: Uuid,
         spec: MapReduceSpecification,
         input_splits: HashMap<String, Vec<InputSplit>>,
         worker_clients: Vec<WorkerClient>,
@@ -230,7 +256,7 @@ impl MasterServer {
         let master_server = MasterServer {
             host: config.rpc.host,
             port: config.rpc.port,
-            master: Master::new(spec, input_splits, worker_clients),
+            master: Master::new(job_id, spec, input_splits, worker_clients),
         };
         Ok(master_server)
     }
@@ -338,7 +364,24 @@ impl MasterService for MasterServer {
         Ok(true)
     }
 
-    async fn update_task(self, _context: context::Context) {}
+    #[tracing::instrument("Update task", fields(
+        task_id = %task_id,
+        task_state = %task_state
+    ))]
+    async fn update_task(
+        mut self,
+        _context: context::Context,
+        task_id: Uuid,
+        task_state: TaskState,
+    ) {
+        self.master_mut()
+            .map_tasks
+            .write()
+            .await
+            .get_mut(&task_id)
+            .unwrap()
+            .state = task_state
+    }
 
     #[tracing::instrument("Master status", skip_all)]
     async fn status(self, _context: context::Context) -> Result<MasterStatus, MasterServiceError> {

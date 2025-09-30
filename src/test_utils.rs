@@ -2,7 +2,7 @@
 use crate::configuration::get_configuration;
 #[cfg(test)]
 use crate::job::MapReduceJob;
-use crate::mapreduce::{InputSplit, split_inputs};
+use crate::mapreduce::{split_inputs, InputSplit};
 use crate::master::{Master, MasterServer};
 use crate::spec::{
     MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceOutputFormat,
@@ -24,7 +24,7 @@ static TRACING: LazyLock<()> = LazyLock::new(|| {
 pub fn setup_job() -> impl Future<Output = Result<MapReduceJob, anyhow::Error>> {
     LazyLock::force(&TRACING);
     let bucket_name = Uuid::new_v4().to_string();
-    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
+    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128, 128);
     spec.add_input(MapReduceInput::new(
         MapReduceInputFormat::Text,
         "input0.txt".into(),
@@ -40,19 +40,21 @@ pub fn setup_job() -> impl Future<Output = Result<MapReduceJob, anyhow::Error>> 
     let mut input_splits = HashMap::new();
     let mut splits = Vec::new();
     for i in 0..100 {
+        let bucket_name_clone = bucket_name.clone();
         splits.push(InputSplit::new(
+            &bucket_name_clone,
             &format!("mr_input_0_{i}_of_99"),
             "WordCounter",
         ));
     }
     input_splits.insert("input0.txt".to_string(), splits);
 
-    MapReduceJob::start(spec, input_splits)
+    MapReduceJob::start(Uuid::new_v4(), spec, input_splits)
 }
 
 pub fn setup_master() -> Master {
     let bucket_name = Uuid::new_v4().to_string();
-    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
+    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128, 128);
     spec.add_input(MapReduceInput::new(
         MapReduceInputFormat::Text,
         "input0.txt".into(),
@@ -68,21 +70,22 @@ pub fn setup_master() -> Master {
     let mut input_splits = HashMap::new();
     let mut splits = Vec::new();
     for i in 0..100 {
+        let bucket_name_clone = bucket_name.clone();
         splits.push(InputSplit::new(
+            &bucket_name_clone,
             &format!("mr_input_0_{i}_of_99"),
             "WordCounter",
         ));
     }
     input_splits.insert("input0.txt".to_string(), splits);
 
-    Master::new(spec, input_splits, vec![])
+    Master::new(Uuid::new_v4(), spec, input_splits, vec![])
 }
 
-#[allow(unused)]
 pub async fn setup_rigorous_spec() -> (MapReduceSpecification, String, S3Storage) {
     LazyLock::force(&TRACING);
     let bucket_name = Uuid::new_v4().to_string();
-    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128);
+    let mut spec = MapReduceSpecification::new(&bucket_name, 3, 128, 128, 128);
     let s3 = S3Storage::new(&bucket_name)
         .await
         .expect("Failed to get storage");
@@ -121,8 +124,9 @@ pub async fn setup_cluster(num_worker: u16) -> (MasterServer, Vec<WorkerServer>,
     let mut config = get_configuration().expect("failed to get config");
     config.cluster.workers = num_worker;
 
+    let job_id = Uuid::new_v4();
     let input_splits = split_inputs(
-        &Uuid::new_v4().to_string(),
+        &job_id.to_string(),
         &bucket_name,
         spec.inputs(),
         "mr_output",
@@ -136,7 +140,7 @@ pub async fn setup_cluster(num_worker: u16) -> (MasterServer, Vec<WorkerServer>,
     configuration.cluster.workers = num_worker;
 
     let (_, shutdown_tx, _, _, master_server, worker_servers) =
-        crate::job::setup_cluster(&configuration, &spec, &input_splits)
+        crate::job::setup_cluster(job_id, &configuration, &spec, &input_splits)
             .await
             .expect("Failed to setup cluster");
 

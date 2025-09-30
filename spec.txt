@@ -96,7 +96,7 @@ API
 
 Let's start with 1 master and 2 workers (1 reduce + 1 map)
 
-We will have separate Dockerfiles for each. Maybe use compose. We can go to k8s later but it's a whole THING. We just
+We will have separate Dockerfiles for each. Maybe use compose. We can go to k8s later, but it's a whole THING. We just
 need a simple test environment for now.
 
 --

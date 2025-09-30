@@ -57,14 +57,16 @@ impl ReduceInput {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct InputSplit {
     id: Uuid,
+    bucket_name: String,
     key: String,
     mapper: String,
 }
 
 impl InputSplit {
-    pub fn new(key: &str, mapper: &str) -> Self {
+    pub fn new(bucket_name: &str, key: &str, mapper: &str) -> Self {
         InputSplit {
             id: Uuid::new_v4(),
+            bucket_name: bucket_name.into(),
             key: key.into(),
             mapper: mapper.into(),
         }
@@ -80,6 +82,10 @@ impl InputSplit {
 
     pub fn mapper(&self) -> &str {
         &self.mapper
+    }
+
+    pub fn bucket_name(&self) -> &str {
+        &self.bucket_name
     }
 }
 
@@ -109,7 +115,7 @@ pub async fn split_inputs(
             .context("Failed to split input files")?;
         let mut input_splits = vec![];
         for result_key in result_keys {
-            let input_split = InputSplit::new(&result_key, input.mapper());
+            let input_split = InputSplit::new(bucket_name, &result_key, input.mapper());
             input_splits.push(input_split);
         }
         results.insert(input.filename().to_string(), input_splits);
@@ -135,10 +141,7 @@ impl MapReduce {
             spec.bucket_name(),
             inputs,
             "mr_input",
-            // TODO: Add a spec field for split size
-            // map_megabytes to the memory limit for
-            // a worker node.
-            spec.map_megabytes(),
+            spec.split_size(),
         )
         .await?;
 
@@ -164,6 +167,10 @@ impl MapReduce {
     pub fn start(
         self,
     ) -> anyhow::Result<impl Future<Output = Result<MapReduceJob, anyhow::Error>>> {
-        Ok(MapReduceJob::start(self.spec, self.input_splits))
+        Ok(MapReduceJob::start(
+            self.job_id,
+            self.spec,
+            self.input_splits,
+        ))
     }
 }

@@ -1,7 +1,9 @@
 //! src/master/service.rs
 use crate::error::error_chain_fmt;
+use crate::master::TaskState;
 use crate::worker::{WorkerId, WorkerInfo};
 use std::net::SocketAddr;
+use uuid::Uuid;
 
 #[derive(PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum MasterStatus {
@@ -49,7 +51,7 @@ impl std::fmt::Debug for MasterServiceError {
 pub trait MasterService {
     async fn call_home(call_home: CallHome) -> Result<bool, MasterServiceError>;
 
-    async fn update_task();
+    async fn update_task(task_id: Uuid, task_state: TaskState);
 
     async fn status() -> Result<MasterStatus, MasterServiceError>;
 

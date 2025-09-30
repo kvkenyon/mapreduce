@@ -1,5 +1,4 @@
 //! src/emitter.rs
-
 use crate::storage::S3Storage;
 use anyhow::Context;
 use std::fs::File;
@@ -24,6 +23,7 @@ pub fn reduce_emit(value: &str) {
 /// successful store. Each r has a part.
 /// s3://<bucket_name>/mr_input_{r}_{part}
 /// We must call flush_all on the emitter since buffers may still be filled and not flushed.
+#[derive(Debug)]
 pub struct PartitionedFileEmitter {
     task_id: Uuid,
     r: usize,
@@ -110,8 +110,10 @@ impl PartitionedFileEmitter {
         self.buf_writers.get(r).unwrap().buffer().len()
     }
 
+    #[tracing::instrument("Flush or write to buffer", skip_all)]
     async fn flush_or_write(&mut self, r: usize, data: &[u8]) -> Result<(), anyhow::Error> {
         if self.get_buffer_len(r) + data.len() > self.buf_size {
+            tracing::info!("flushing..");
             self.flush(r).await.context(format!("Flushing {r}"))?;
         }
         self.get_buf_writer(r)
@@ -135,6 +137,10 @@ impl PartitionedFileEmitter {
             .context("Failed to read file into buf")?;
         let part = self.parts.get(r).unwrap();
         let key = format!("mr_input_{r}_{part}");
+        tracing::info!(
+            "writing buffer for {r} to s3 @ {key} in bucket {}",
+            self.task_id
+        );
         self.storage_handle
             .put(&key, &buf)
             .await
@@ -144,13 +150,14 @@ impl PartitionedFileEmitter {
         self.buf_writers[r] = BufWriter::with_capacity(self.buf_size, file);
         self.storage_keys.push(key);
         self.inc_part(r);
+        tracing::info!("flush done");
         Ok(())
     }
 
     #[tracing::instrument("Flush all", skip_all)]
     pub async fn flush_all(&mut self) -> anyhow::Result<()> {
         for r in 0..self.r {
-            tracing::debug!("Flushing {r}");
+            tracing::info!("Flushing {r}");
             self.flush(r)
                 .await
                 .context(format!("Failed to flush split {r}"))?;
@@ -162,6 +169,7 @@ impl PartitionedFileEmitter {
     pub async fn emit(&mut self, key: &str, value: &str) -> anyhow::Result<()> {
         let r = self.part_func(key) as usize;
         let data = format!("({key}, {value})\n");
+        tracing::info!("flushing to partition {r} data {data}");
         self.flush_or_write(r, data.as_bytes())
             .await
             .context("Failed to flush or write")?;
@@ -172,12 +180,10 @@ impl PartitionedFileEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telemetry::init_tracing;
     use uuid::Uuid;
 
     #[tokio::test]
     async fn should_emit_r_files_in_bucket_task_id() {
-        init_tracing("should emit r files in bucket task test").expect("failed to start tracing");
         // Arrange
         let task_id = Uuid::new_v4();
         let r = 8;

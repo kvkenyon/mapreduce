@@ -1,23 +1,25 @@
 //! src/workers/lib.rs
 
 use crate::configuration::Settings;
-use crate::master::{CallHome, MapTask, MasterServiceClient, ReduceTask};
+use crate::master::{CallHome, MapTask, MasterServiceClient, ReduceTask, TaskState};
+use crate::worker::executor::MapExecutor;
 use crate::worker::{
     WorkerInfo, WorkerService, WorkerServiceClient, WorkerServiceError, WorkerStatus,
 };
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use futures::{future, prelude::*};
 use std::fmt::Formatter;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tarpc::{
     context,
-    server::{self, Channel, incoming::Incoming},
+    server::{self, incoming::Incoming, Channel},
     tokio_serde::formats::Json,
 };
-use tokio::sync::RwLock;
 use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tracing::{error, info, instrument};
 use uuid::Uuid;
 
 #[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize, Eq, Hash, Copy)]
@@ -45,12 +47,20 @@ impl Default for WorkerId {
     }
 }
 
+#[derive(Debug, Clone)]
+enum ActiveTask {
+    Map(Uuid),
+    Reduce(Uuid),
+}
+
 #[derive(Clone, Debug)]
 pub struct Worker {
     id: WorkerId,
+    worker_status: Arc<RwLock<WorkerStatus>>,
     map_tasks: Arc<RwLock<Vec<MapTask>>>,
     reduce_tasks: Arc<RwLock<Vec<ReduceTask>>>,
     master_service_client: Option<MasterServiceClient>,
+    active_task: Arc<RwLock<Option<ActiveTask>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,11 +94,14 @@ impl Default for Worker {
 
 impl Worker {
     pub fn new() -> Self {
+        let wid = WorkerId::new();
         Self {
-            id: WorkerId::new(),
+            id: wid,
+            worker_status: Arc::new(RwLock::new(WorkerStatus::Idle(wid))),
             map_tasks: Arc::new(RwLock::new(vec![])),
             reduce_tasks: Arc::new(RwLock::new(vec![])),
             master_service_client: None,
+            active_task: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -96,8 +109,69 @@ impl Worker {
         &self.id
     }
 
-    pub fn run(&mut self) -> Result<(), anyhow::Error> {
+    /// Find a task that is in idle state and wrap it in ActiveTask. Map tasks
+    /// have higher priority. Reduce tasks must be idle and ready (file location
+    /// was updated by the master after a map tasks completed)
+    ///
+    /// Returns a cloned task inside ActiveTask enum
+    #[instrument("Get ready task", skip_all)]
+    async fn get_ready_task(&self) -> Option<ActiveTask> {
+        for map_task in self.map_tasks.read().await.iter() {
+            if map_task.state == TaskState::Idle {
+                info!("Found idle map task with id = {}", map_task.task_id);
+                return Some(ActiveTask::Map(map_task.task_id));
+            }
+        }
+
+        for reduce_task in self.reduce_tasks.read().await.iter() {
+            if reduce_task.state == TaskState::Idle && reduce_task.is_ready() {
+                info!("Found idle reduce task with id = {}", reduce_task.task_id);
+                return Some(ActiveTask::Reduce(reduce_task.task_id));
+            }
+        }
+        None
+    }
+
+    #[instrument("Execute tasks", skip_all, fields(worker_id = %self.id()))]
+    async fn execute_tasks(self) -> anyhow::Result<()> {
+        let mut ws = self.worker_status.write().await;
+        *ws = WorkerStatus::InProgress(*self.id());
+        info!("setting worker status to {:?}", *ws);
+        while let Some(task) = self.get_ready_task().await {
+            match task {
+                ActiveTask::Map(map_task_id) => {
+                    let mut tasks = self.map_tasks.write().await;
+                    let maybe_map_task = tasks.iter_mut().find(|m| m.task_id == map_task_id);
+                    info!("Maybe map task: {maybe_map_task:?}");
+                    if let Some(map_task) = maybe_map_task {
+                        let executor = MapExecutor::new(map_task).await?;
+                        let mut active_task = self.active_task.write().await;
+                        map_task.state = TaskState::InProgress;
+                        *active_task = Some(task);
+                        info!("Begin execute active task = {active_task:?}");
+                        executor.execute().await.inspect_err(|e| {
+                            error!("Error in execute: {e}");
+                            map_task.state = TaskState::Idle;
+                        })?;
+                        info!("End execute active task = {active_task:?}");
+                        map_task.state = TaskState::Completed;
+                    }
+                }
+                ActiveTask::Reduce(reduce_task) => {
+                    println!("Running reduce {reduce_task:?}");
+                }
+            }
+        }
+        *ws = WorkerStatus::Completed(*self.id());
         Ok(())
+    }
+
+    /// Spins until there are no more ready tasks. Then returns state to Idle.
+    /// When working on tasks the worker will set its state to InProgress.
+    pub async fn run(&self) -> Result<JoinHandle<anyhow::Result<()>>, anyhow::Error> {
+        let worker_clone = self.clone();
+        let handle = tokio::spawn(worker_clone.execute_tasks());
+        Ok(handle)
     }
 
     pub async fn assign_map(&mut self, task: MapTask) -> Result<(), anyhow::Error> {
@@ -155,16 +229,16 @@ impl WorkerServer {
                     result
                 }
                 _ = shutdown_rx.recv() => {
-                    tracing::info!("Worker shutting down");
+                    info!("Worker shutting down");
                    Ok(())
                 }
             }
         });
-        tracing::info!("waiting to bind socket address");
+        info!("waiting to bind socket address");
         let socket_addr = addr_rx.await.context("Failed to receive worker address")?;
         let mut curr_addr = self.socket_addr.write().await;
         *curr_addr = Some(socket_addr);
-        tracing::info!("socket address acquired: {socket_addr}");
+        info!("socket address acquired: {socket_addr}");
         Ok((socket_addr, handle))
     }
 
@@ -243,9 +317,12 @@ impl WorkerServer {
 
 impl WorkerService for WorkerServer {
     async fn status(self, _context: context::Context) -> Result<WorkerStatus, WorkerServiceError> {
-        Ok(WorkerStatus::Idle(self.worker.id))
+        let worker_status = self.worker.worker_status.read().await.clone();
+        Ok(worker_status)
     }
-
+    #[tracing::instrument("Assign map task", skip_all, fields(
+       worker_id = %self.worker.id()
+    ))]
     async fn assign_map_task(
         mut self,
         _: context::Context,
@@ -258,6 +335,9 @@ impl WorkerService for WorkerServer {
         Ok(true)
     }
 
+    #[tracing::instrument("Assign reduce task", skip_all, fields(
+       worker_id = %self.worker.id()
+    ))]
     async fn assign_reduce_task(
         mut self,
         _: context::Context,
@@ -268,6 +348,14 @@ impl WorkerService for WorkerServer {
             .await
             .context("Failed to assign reduce task")?;
         Ok(true)
+    }
+
+    #[tracing::instrument("Start tasks", skip_all, fields(
+       worker_id = %self.worker.id()
+    ))]
+    async fn start_tasks(self, _context: context::Context) -> Result<(), WorkerServiceError> {
+        let _handle = self.worker.run().await?;
+        Ok(())
     }
 
     async fn worker_info(self, _: context::Context) -> Result<WorkerInfo, WorkerServiceError> {
@@ -282,4 +370,75 @@ impl WorkerService for WorkerServer {
 }
 async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
+}
+
+#[cfg(test)]
+mod test {
+    use crate::mapreduce::split_inputs;
+    use crate::master::{MapTask, TaskState};
+    use crate::storage::S3Storage;
+    use crate::test_utils::setup_rigorous_spec;
+    use crate::worker::{Worker, WorkerStatus};
+    use claims::assert_matches;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn should_be_able_to_execute_single_map_task() {
+        // Arrange
+        let (spec, bucket_name, s3) = setup_rigorous_spec().await;
+        let job_id = Uuid::new_v4();
+        let input_splits = split_inputs(
+            &job_id.to_string(),
+            &bucket_name,
+            spec.inputs(),
+            "mr_output",
+            128,
+        )
+        .await
+        .expect("Failed to split input");
+        let input_split = input_splits
+            .get("input_0.txt")
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+        let task_id = Uuid::new_v4();
+        let task = MapTask {
+            job_id,
+            task_id,
+            r: 8,
+            state: TaskState::Idle,
+            worker_id: None,
+            input_split,
+        };
+        let mut worker = Worker::new();
+        worker
+            .assign_map(task)
+            .await
+            .expect("failed to assign map task");
+
+        assert_matches!(
+            worker.worker_status.read().await.clone(),
+            WorkerStatus::Idle(_)
+        );
+
+        // Act
+
+        let handle = worker.run().await.expect("Failed to spawn run task");
+
+        handle.await.expect("failed to join run handle").unwrap();
+
+        // Assert
+        // we get the bucket for the task id and check for the mr_output splits
+        // based on partition size r = 8
+        let s3 = S3Storage::new(&task_id.to_string())
+            .await
+            .expect("Failed to get s3");
+
+        let results = s3.list().await.expect("failed to list s3 bucket");
+
+        println!("results = {results:?}");
+
+        assert_eq!(results.len(), 8);
+    }
 }

@@ -7,7 +7,7 @@ use mapreduce::spec::{
 
 #[test]
 fn you_should_be_able_to_create_a_map_reduce_sepc() {
-    let spec = MapReduceSpecification::new("bucket", 2, 16, 16);
+    let spec = MapReduceSpecification::new("bucket", 2, 16, 16, 16);
     assert_eq!(spec.machines(), 2);
     assert_eq!(spec.map_megabytes(), 16);
     assert_eq!(spec.reduce_megabytes(), 16);
@@ -15,7 +15,7 @@ fn you_should_be_able_to_create_a_map_reduce_sepc() {
 
 #[test]
 fn you_should_be_able_to_add_input_to_a_map_reduce_spec() {
-    let mut spec = MapReduceSpecification::new("bucket", 2, 16, 16);
+    let mut spec = MapReduceSpecification::new("bucket", 2, 16, 16, 16);
 
     for i in 0..5 {
         let input = MapReduceInput::new(
@@ -37,7 +37,7 @@ fn you_should_be_able_to_add_input_to_a_map_reduce_spec() {
 
 #[test]
 fn you_should_be_able_to_define_a_map_reduce_output_on_a_spec() {
-    let mut spec = MapReduceSpecification::new("bucket", 2, 16, 16);
+    let mut spec = MapReduceSpecification::new("bucket", 2, 16, 16, 16);
 
     for i in 0..5 {
         let input = MapReduceInput::new(

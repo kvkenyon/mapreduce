@@ -96,12 +96,14 @@ pub struct MapReduceSpecification {
     machines: u32,
     map_megabytes: u32,
     reduce_megabytes: u32,
+    split_size: u32,
 }
 
 impl MapReduceSpecification {
     pub fn new(
         bucket_name: &str,
         machines: u32,
+        split_size: u32,
         map_megabytes: u32,
         reduce_megabytes: u32,
     ) -> Self {
@@ -112,6 +114,7 @@ impl MapReduceSpecification {
             machines,
             map_megabytes,
             reduce_megabytes,
+            split_size,
         }
     }
 
@@ -137,6 +140,10 @@ impl MapReduceSpecification {
 
     pub fn reduce_megabytes(&self) -> u32 {
         self.reduce_megabytes
+    }
+
+    pub fn split_size(&self) -> u32 {
+        self.split_size
     }
 
     pub fn set_output(&mut self, output: MapReduceOutput) {
