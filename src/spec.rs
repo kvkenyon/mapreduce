@@ -44,7 +44,7 @@ impl MapReduceInput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MapReduceOutput {
     base_path: String,
-    num_tasks: u32,
+    num_tasks: usize,
     format: MapReduceOutputFormat,
     reducer: String,
     combiner: Option<String>,
@@ -53,7 +53,7 @@ pub struct MapReduceOutput {
 impl MapReduceOutput {
     pub fn new(
         base_path: String,
-        num_tasks: u32,
+        num_tasks: usize,
         format: MapReduceOutputFormat,
         reducer: String,
         combiner: Option<String>,
@@ -79,7 +79,7 @@ impl MapReduceOutput {
         &self.base_path
     }
 
-    pub fn num_tasks(&self) -> u32 {
+    pub fn num_tasks(&self) -> usize {
         self.num_tasks
     }
 

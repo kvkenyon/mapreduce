@@ -2,22 +2,22 @@
 
 use crate::configuration::Settings;
 use crate::master::{CallHome, MapTask, MasterServiceClient, ReduceTask, TaskState};
-use crate::worker::executor::MapExecutor;
+use crate::worker::executor::{MapExecutor, ReduceExecutor};
 use crate::worker::{
     WorkerInfo, WorkerService, WorkerServiceClient, WorkerServiceError, WorkerStatus,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use futures::{future, prelude::*};
 use std::fmt::Formatter;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tarpc::{
     context,
-    server::{self, incoming::Incoming, Channel},
+    server::{self, Channel, incoming::Incoming},
     tokio_serde::formats::Json,
 };
-use tokio::sync::oneshot;
 use tokio::sync::RwLock;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{error, info, instrument};
 use uuid::Uuid;
@@ -148,17 +148,32 @@ impl Worker {
                         let mut active_task = self.active_task.write().await;
                         map_task.state = TaskState::InProgress;
                         *active_task = Some(task);
-                        info!("Begin execute active task = {active_task:?}");
+                        info!("Begin execute active map task = {active_task:?}");
                         executor.execute().await.inspect_err(|e| {
                             error!("Error in execute: {e}");
                             map_task.state = TaskState::Idle;
                         })?;
-                        info!("End execute active task = {active_task:?}");
+                        info!("End execute active map task = {active_task:?}");
                         map_task.state = TaskState::Completed;
                     }
                 }
-                ActiveTask::Reduce(reduce_task) => {
-                    println!("Running reduce {reduce_task:?}");
+                ActiveTask::Reduce(reduce_task_id) => {
+                    let mut tasks = self.reduce_tasks.write().await;
+                    let maybe_reduce_task = tasks.iter_mut().find(|r| r.task_id == reduce_task_id);
+                    info!("Maybe reduce task: {maybe_reduce_task:?}");
+                    if let Some(reduce_task) = maybe_reduce_task {
+                        let executor = ReduceExecutor::new(reduce_task.clone())?;
+                        let mut active_task = self.active_task.write().await;
+                        reduce_task.state = TaskState::InProgress;
+                        *active_task = Some(task);
+                        info!("Begin execute active reduce task = {active_task:?}");
+                        executor.execute().await.inspect_err(|e| {
+                            error!("Error in execute: {e}");
+                            reduce_task.state = TaskState::Idle;
+                        })?;
+                        info!("End execute reduce active task = {active_task:?}");
+                        reduce_task.state = TaskState::Completed;
+                    }
                 }
             }
         }
@@ -375,7 +390,7 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 #[cfg(test)]
 mod test {
     use crate::mapreduce::split_inputs;
-    use crate::master::{MapTask, TaskState};
+    use crate::master::{MapTask, ReduceTask, TaskState};
     use crate::storage::S3Storage;
     use crate::test_utils::setup_rigorous_spec;
     use crate::worker::{Worker, WorkerStatus};
@@ -383,16 +398,16 @@ mod test {
     use uuid::Uuid;
 
     #[tokio::test]
-    async fn should_be_able_to_execute_single_map_task() {
+    async fn should_be_able_to_execute_single_map_task_and_reduce_task() {
         // Arrange
-        let (spec, bucket_name, s3) = setup_rigorous_spec().await;
+        let (spec, bucket_name, _) = setup_rigorous_spec().await;
         let job_id = Uuid::new_v4();
         let input_splits = split_inputs(
             &job_id.to_string(),
             &bucket_name,
             spec.inputs(),
             "mr_output",
-            128,
+            2048,
         )
         .await
         .expect("Failed to split input");
@@ -402,16 +417,33 @@ mod test {
             .first()
             .unwrap()
             .clone();
-        let task_id = Uuid::new_v4();
+        let mut worker = Worker::new();
+        let map_task_id = Uuid::new_v4();
+        let reduce_task_id = Uuid::new_v4();
         let task = MapTask {
             job_id,
-            task_id,
-            r: 8,
+            task_id: map_task_id,
+            r: spec.output().unwrap().num_tasks(),
             state: TaskState::Idle,
-            worker_id: None,
+            worker_id: Some(*worker.id()),
             input_split,
         };
-        let mut worker = Worker::new();
+
+        let reduce_task = ReduceTask {
+            job_id,
+            task_id: reduce_task_id,
+            state: TaskState::Idle,
+            worker_id: Some(*worker.id()),
+            output: spec.output().unwrap().clone(),
+            input_location: Some(map_task_id.to_string()),
+            r: 0,
+        };
+
+        worker
+            .assign_reduce(reduce_task)
+            .await
+            .expect("Failed to assign reduce task");
+
         worker
             .assign_map(task)
             .await
@@ -423,7 +455,6 @@ mod test {
         );
 
         // Act
-
         let handle = worker.run().await.expect("Failed to spawn run task");
 
         handle.await.expect("failed to join run handle").unwrap();
@@ -431,14 +462,28 @@ mod test {
         // Assert
         // we get the bucket for the task id and check for the mr_output splits
         // based on partition size r = 8
-        let s3 = S3Storage::new(&task_id.to_string())
+        let s3 = S3Storage::new(&map_task_id.to_string())
             .await
             .expect("Failed to get s3");
 
         let results = s3.list().await.expect("failed to list s3 bucket");
 
-        println!("results = {results:?}");
+        for result in results {
+            assert!(result.starts_with("mr_input_0_"));
+        }
+        let s3 = S3Storage::new(&bucket_name)
+            .await
+            .expect("Failed to get s3");
+        let mr_output = s3
+            .get("mr_output_0")
+            .await
+            .expect("Failed to get mr output");
 
-        assert_eq!(results.len(), 8);
+        println!("mr_output = {mr_output}");
+
+        assert_matches!(
+            worker.worker_status.read().await.clone(),
+            WorkerStatus::Completed(_)
+        );
     }
 }

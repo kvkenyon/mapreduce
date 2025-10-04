@@ -12,11 +12,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tarpc::{
     context,
-    server::{self, incoming::Incoming, Channel},
+    server::{self, Channel, incoming::Incoming},
     tokio_serde::formats::Json,
 };
-use tokio::sync::oneshot;
 use tokio::sync::RwLock;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -55,6 +55,7 @@ pub struct ReduceTask {
     pub worker_id: Option<WorkerId>,
     pub output: MapReduceOutput,
     pub input_location: Option<String>,
+    pub r: usize,
 }
 
 impl ReduceTask {
@@ -87,7 +88,7 @@ impl Master {
         let number_of_reduce_tasks = spec
             .output()
             .expect("No map reduce output defined. Job failing.")
-            .num_tasks() as usize;
+            .num_tasks();
 
         let mut number_of_map_tasks = 0;
         let mut map_tasks = HashMap::new();
@@ -108,15 +109,18 @@ impl Master {
         }
 
         let mut reduce_tasks = HashMap::new();
-        for i in 0..number_of_reduce_tasks {
+        for r in 0..number_of_reduce_tasks {
             let task_id = Uuid::new_v4();
             let task = ReduceTask {
                 job_id,
                 task_id,
                 state: TaskState::Idle,
                 worker_id: None,
-                output: spec.output().unwrap(),
+                output: spec
+                    .output()
+                    .expect("MapReduceSpecification requires output"),
                 input_location: None,
+                r,
             };
             reduce_tasks.insert(task_id, task);
         }

@@ -2,7 +2,7 @@
 use crate::configuration::get_configuration;
 #[cfg(test)]
 use crate::job::MapReduceJob;
-use crate::mapreduce::{split_inputs, InputSplit};
+use crate::mapreduce::{InputSplit, split_inputs};
 use crate::master::{Master, MasterServer};
 use crate::spec::{
     MapReduceInput, MapReduceInputFormat, MapReduceOutput, MapReduceOutputFormat,
@@ -108,8 +108,8 @@ pub async fn setup_rigorous_spec() -> (MapReduceSpecification, String, S3Storage
     assert_eq!(files.len(), 5);
 
     spec.set_output(MapReduceOutput::new(
-        "mr_output".into(),
-        10,
+        bucket_name.clone(),
+        1,
         MapReduceOutputFormat::Text,
         "Adder".to_string(),
         None,
